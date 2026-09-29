@@ -1,5 +1,6 @@
 services:
   mini-redis:
+    image: mini-redis
     build:
       context: .
     ports:
