@@ -1,6 +1,5 @@
 /target/
 .idea/
 .vscode/
-.devcontainer/devcontainer.json
 *.log
 .DS_Store

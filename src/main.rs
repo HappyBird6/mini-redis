@@ -10,4 +10,3 @@ use std::io;
 async fn main() -> io::Result<()> {
     server::run("0.0.0.0:6379").await
 }
-

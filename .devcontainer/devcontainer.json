@@ -1,0 +1,14 @@
+{
+  "name": "mini-redis",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "mini-redis",
+  "workspaceFolder": "/app",
+  "overrideCommand": true,
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer"
+      ]
+    }
+  }
+}
