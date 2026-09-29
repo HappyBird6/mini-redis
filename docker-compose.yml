@@ -1,0 +1,24 @@
+services:
+  mini-redis:
+    build:
+      context: .
+    ports:
+      - "6379:6379"
+    volumes:
+      - .:/app # bind mount. 로컬 프로젝트 디렉터리를 컨테이너의 /app과 연결
+      - cargo-target:/app/target # 컴파일 결과를 컨테이너 외부에 유지해서 재사용
+      - cargo-registry:/usr/local/cargo/registry # crate등을 저장하는 디렉터리 보존
+    command: cargo run
+    stdin_open: true # 표준입력 열어둠
+    tty: true # 가상 터미널 할당
+
+  official-redis:
+    image: redis:7.4-bookworm # 이미 만들어져 있는 이미지
+    ports:
+      - "6380:6379"
+    command: redis-server --save "" --appendonly no # 테스트용이니까 데이터 영속화를 꺼서 메모리에만 데이터 저장.
+
+# named volume 선언
+volumes:
+  cargo-target:
+  cargo-registry:
