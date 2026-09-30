@@ -22,7 +22,18 @@ pub enum CommandError {
     UnknownCommand,
     WrongArity,
 }
-
+impl CommandError {
+    pub fn message(&self) -> &'static str {
+        match self {
+            Self::ExpectedArray => "ERR expected an array",
+            Self::EmptyCommand => "ERR empty command",
+            Self::ExpectedBulkString => "ERR expected a bulk string argument",
+            Self::InvalidUtf8Key => "ERR key must be valid UTF-8",
+            Self::UnknownCommand => "ERR unknown command",
+            Self::WrongArity => "ERR wrong number of arguments",
+        }
+    }
+}
 /*
 프레임을 bytes 벡터로 변경
 */

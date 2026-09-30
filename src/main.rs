@@ -3,6 +3,7 @@ mod connection;
 mod db;
 mod resp;
 mod server;
+mod executor;
 
 use std::io;
 

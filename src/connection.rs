@@ -5,10 +5,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::command::Command;
+use crate::db::Db;
+use crate::executor;
 
 const MAX_PENDING_BYTES: usize = 2 * 1024 * 1024; // 2 MiB
 
-pub async fn handle(mut socket: TcpStream) -> io::Result<()> {
+pub async fn handle(mut socket: TcpStream, db: Db) -> io::Result<()> {
     let mut buffer = [0_u8; 4096];
     let mut pending: Vec<u8> = Vec::new();
     loop {
@@ -40,11 +42,17 @@ pub async fn handle(mut socket: TcpStream) -> io::Result<()> {
         loop {
             match crate::resp::parse(&pending) {
                 Ok(Some((frame, consumed))) => {
-                    let command = Command::from_frame(frame);
-
                     // 쓴 데이터 길이만큼 펜딩에서 제거
                     // TODO : 이후 처리량 많아지면 오프셋으로 처리한뒤 한번에 제거
                     pending.drain(..consumed);
+
+                    /*
+                    frame을 command로 변경후 execute 함수로 넘기고 응답 frame 받아옴                  
+                     */
+                    let response = match Command::from_frame(frame) {
+                        Ok(command) => executor::execute(command, &db),
+                        Err(error) => crate::resp::Frame::Error(error.message().to_owned()),
+                    };
                 }
                 Ok(None) => {
                     // 데이터 부족 read에서 데이터를 더 받아와야함
