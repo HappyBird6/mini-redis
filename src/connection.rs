@@ -1,12 +1,11 @@
-#![allow(unused)]
-
-use std::io::{self, ErrorKind};
+use std::io::{self};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::command::Command;
 use crate::db::Db;
 use crate::executor;
+use crate::resp;
 
 const MAX_PENDING_BYTES: usize = 2 * 1024 * 1024; // 2 MiB
 
@@ -40,19 +39,30 @@ pub async fn handle(mut socket: TcpStream, db: Db) -> io::Result<()> {
         // 펜딩에 읽은 버퍼 데이터 붙임
         pending.extend_from_slice(&buffer[..bytes_read]);
         loop {
-            match crate::resp::parse(&pending) {
+            match resp::parse(&pending) {
                 Ok(Some((frame, consumed))) => {
                     // 쓴 데이터 길이만큼 펜딩에서 제거
                     // TODO : 이후 처리량 많아지면 오프셋으로 처리한뒤 한번에 제거
                     pending.drain(..consumed);
 
                     /*
-                    frame을 command로 변경후 execute 함수로 넘기고 응답 frame 받아옴                  
+                    frame을 command로 변경후 execute 함수로 넘기고 응답 frame 받아옴
                      */
                     let response = match Command::from_frame(frame) {
                         Ok(command) => executor::execute(command, &db),
-                        Err(error) => crate::resp::Frame::Error(error.message().to_owned()),
+                        Err(error) => resp::Frame::Error(error.message().to_owned()),
                     };
+
+                    // 받은 frame을 encoder로 byte로 변환
+                    let response_bytes = resp::encode(response).map_err(|err| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("failed to encode RESP response: {err:?}"),
+                        )
+                    })?;
+
+                    // 응답 전송
+                    socket.write_all(&response_bytes).await?;
                 }
                 Ok(None) => {
                     // 데이터 부족 read에서 데이터를 더 받아와야함
@@ -66,6 +76,5 @@ pub async fn handle(mut socket: TcpStream, db: Db) -> io::Result<()> {
                 }
             }
         }
-        socket.write_all(&buffer[..bytes_read]).await?;
     }
 }

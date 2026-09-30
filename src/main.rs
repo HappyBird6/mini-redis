@@ -1,9 +1,9 @@
 mod command;
 mod connection;
 mod db;
+mod executor;
 mod resp;
 mod server;
-mod executor;
 
 use std::io;
 

@@ -17,6 +17,11 @@ pub enum Frame {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EncodeError {
+    InvalidFormat,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError {
     InvalidFormat,
     TooDeep,
@@ -162,10 +167,68 @@ fn parse_inner(buffer: &[u8], depth: usize) -> Result<Option<(Frame, usize)>, Pa
         _ => Err(ParseError::InvalidFormat),
     }
 }
-// pub fn encode(frame: &Frame) {}
+
+pub fn encode(frame: Frame) -> Result<Vec<u8>, EncodeError> {
+    let mut response: Vec<u8> = Vec::new();
+    match frame {
+        Frame::SimpleString(item) => {
+            if item.contains('\r') || item.contains('\n') {
+                return Err(EncodeError::InvalidFormat);
+            }
+            response.extend_from_slice(b"+");
+            response.extend_from_slice(item.as_bytes());
+            response.extend_from_slice(b"\r\n");
+
+            Ok(response)
+        }
+        Frame::Error(item) => {
+            if item.contains('\r') || item.contains('\n') {
+                return Err(EncodeError::InvalidFormat);
+            }
+            response.extend_from_slice(b"-");
+            response.extend_from_slice(item.as_bytes());
+            response.extend_from_slice(b"\r\n");
+
+            Ok(response)
+        }
+        Frame::Integer(item) => {
+            response.extend_from_slice(b":");
+            response.extend_from_slice(item.to_string().as_bytes());
+            response.extend_from_slice(b"\r\n");
+
+            Ok(response)
+        }
+        Frame::BulkString(items) => {
+            response.extend_from_slice(b"$");
+            response.extend_from_slice(items.len().to_string().as_bytes());
+            response.extend_from_slice(b"\r\n");
+            response.extend_from_slice(&items);
+            response.extend_from_slice(b"\r\n");
+            Ok(response)
+        }
+        Frame::Array(items) => {
+            response.extend_from_slice(b"*");
+            response.extend_from_slice(items.len().to_string().as_bytes());
+            response.extend_from_slice(b"\r\n");
+
+            for item in items {
+                let bytes = encode(item)?;
+                response.extend_from_slice(&bytes);
+            }
+
+            Ok(response)
+        }
+        Frame::Null => {
+            response.extend_from_slice("$-1".as_bytes());
+            response.extend_from_slice(b"\r\n");
+
+            Ok(response)
+        }
+    }
+}
 
 #[cfg(test)]
-mod tests {
+mod parse_tests {
     use super::{parse, Frame, ParseError, MAX_ARRAY_DEPTH, MAX_ARRAY_LENGTH, MAX_BULK_LENGTH};
 
     #[test]
@@ -251,5 +314,132 @@ mod tests {
         let input = "*1\r\n".repeat(MAX_ARRAY_DEPTH + 1) + "+OK\r\n";
 
         assert_eq!(parse(input.as_bytes()), Err(ParseError::TooDeep));
+    }
+}
+
+#[cfg(test)]
+mod encode_tests {
+    use super::{encode, parse, EncodeError, Frame};
+
+    #[test]
+    fn encodes_simple_string() {
+        assert_eq!(
+            encode(Frame::SimpleString("OK".into())),
+            Ok(b"+OK\r\n".to_vec())
+        );
+    }
+
+    #[test]
+    fn encodes_error_with_minus_prefix() {
+        assert_eq!(
+            encode(Frame::Error("ERR unknown command".into())),
+            Ok(b"-ERR unknown command\r\n".to_vec())
+        );
+    }
+
+    #[test]
+    fn encodes_integer_boundaries() {
+        for (value, expected) in [
+            (0, ":0\r\n"),
+            (-1, ":-1\r\n"),
+            (i64::MIN, ":-9223372036854775808\r\n"),
+            (i64::MAX, ":9223372036854775807\r\n"),
+        ] {
+            assert_eq!(
+                encode(Frame::Integer(value)),
+                Ok(expected.as_bytes().to_vec())
+            );
+        }
+    }
+
+    #[test]
+    fn encodes_bulk_string() {
+        assert_eq!(
+            encode(Frame::BulkString(b"kim".to_vec())),
+            Ok(b"$3\r\nkim\r\n".to_vec())
+        );
+    }
+
+    #[test]
+    fn preserves_binary_bulk_data() {
+        assert_eq!(
+            encode(Frame::BulkString(vec![0xff, 0, b'\r', b'\n'])),
+            Ok(b"$4\r\n\xff\x00\r\n\r\n".to_vec())
+        );
+    }
+
+    #[test]
+    fn counts_utf8_bytes_not_characters() {
+        assert_eq!(
+            encode(Frame::BulkString("한글".as_bytes().to_vec())),
+            Ok("$6\r\n한글\r\n".as_bytes().to_vec())
+        );
+    }
+
+    #[test]
+    fn encodes_empty_bulk_string() {
+        assert_eq!(
+            encode(Frame::BulkString(vec![])),
+            Ok(b"$0\r\n\r\n".to_vec())
+        );
+    }
+
+    #[test]
+    fn encodes_null() {
+        assert_eq!(encode(Frame::Null), Ok(b"$-1\r\n".to_vec()));
+    }
+
+    #[test]
+    fn encodes_empty_array() {
+        assert_eq!(encode(Frame::Array(vec![])), Ok(b"*0\r\n".to_vec()));
+    }
+
+    #[test]
+    fn encodes_nested_array() {
+        let frame = Frame::Array(vec![
+            Frame::SimpleString("OK".into()),
+            Frame::Array(vec![Frame::Integer(-1), Frame::Null]),
+            Frame::BulkString(b"x".to_vec()),
+        ]);
+        assert_eq!(
+            encode(frame),
+            Ok(b"*3\r\n+OK\r\n*2\r\n:-1\r\n$-1\r\n$1\r\nx\r\n".to_vec())
+        );
+    }
+
+    #[test]
+    fn rejects_line_breaks_in_simple_strings_and_errors() {
+        for text in ["a\rb", "a\nb", "a\r\nb"] {
+            for frame in [Frame::SimpleString(text.into()), Frame::Error(text.into())] {
+                assert_eq!(encode(frame), Err(EncodeError::InvalidFormat));
+            }
+        }
+    }
+
+    #[test]
+    fn propagates_nested_encoding_errors() {
+        for invalid in [
+            Frame::SimpleString("bad\r".into()),
+            Frame::Error("bad\n".into()),
+        ] {
+            let frame = Frame::Array(vec![Frame::Integer(1), Frame::Array(vec![invalid])]);
+            assert_eq!(encode(frame), Err(EncodeError::InvalidFormat));
+        }
+    }
+
+    #[test]
+    fn round_trips_all_frame_types() {
+        let frames = vec![
+            Frame::SimpleString("OK".into()),
+            Frame::Error("ERR failed".into()),
+            Frame::Integer(-42),
+            Frame::BulkString(vec![0xff, 0, b'\r', b'\n']),
+            Frame::Null,
+            Frame::Array(vec![Frame::Array(vec![]), Frame::Integer(1)]),
+        ];
+        for frame in frames {
+            let bytes = encode(frame.clone()).unwrap();
+            assert_eq!(parse(&bytes), Ok(Some((frame, bytes.len()))));
+        }
     }
 }

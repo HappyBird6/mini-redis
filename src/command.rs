@@ -37,7 +37,7 @@ impl CommandError {
 /*
 프레임을 bytes 벡터로 변경
 */
-fn into_bytes(frame: Frame) -> Result<Vec<u8>, CommandError> {
+pub fn into_bytes(frame: Frame) -> Result<Vec<u8>, CommandError> {
     match frame {
         Frame::BulkString(bytes) => Ok(bytes),
         _ => Err(CommandError::ExpectedBulkString),

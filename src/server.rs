@@ -19,7 +19,7 @@ pub async fn run(address: &str) -> io::Result<()> {
         let db = db.clone();
 
         tokio::spawn(async move {
-            if let Err(error) = connection::handle(socket,db).await {
+            if let Err(error) = connection::handle(socket, db).await {
                 eprintln!("connection error ({peer}): {error}");
             }
         });
