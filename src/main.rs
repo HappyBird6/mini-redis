@@ -1,6 +1,7 @@
 mod command;
 mod connection;
 mod db;
+mod executor;
 mod resp;
 mod server;
 

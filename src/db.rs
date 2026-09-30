@@ -12,11 +12,18 @@ pub struct Db {
 
 impl Db {
     pub fn set(&self, key: String, value: Vec<u8>) {
-        self.entries.write().expect("db lock poisoned").insert(key, value);
+        self.entries
+            .write()
+            .expect("db lock poisoned")
+            .insert(key, value);
     }
 
     pub fn get(&self, key: &str) -> Option<Vec<u8>> {
-        self.entries.read().expect("db lock poisoned").get(key).cloned()
+        self.entries
+            .read()
+            .expect("db lock poisoned")
+            .get(key)
+            .cloned()
     }
 
     /*

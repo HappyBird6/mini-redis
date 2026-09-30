@@ -22,4 +22,3 @@ async fn tcp_round_trip_echoes_bytes() {
 
     server.await.unwrap();
 }
-
