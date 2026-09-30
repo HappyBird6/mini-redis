@@ -1,6 +1,8 @@
 use std::io::{self};
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::time::timeout;
 
 use crate::command::Command;
 use crate::db::Db;
@@ -8,6 +10,7 @@ use crate::executor;
 use crate::resp;
 
 const MAX_PENDING_BYTES: usize = 2 * 1024 * 1024; // 2 MiB
+const READ_TIMEOUT: Duration = Duration::from_secs(60); // 타임아웃 60초
 
 pub async fn handle(mut socket: TcpStream, db: Db) -> io::Result<()> {
     let mut buffer = [0_u8; 4096];
@@ -22,8 +25,13 @@ pub async fn handle(mut socket: TcpStream, db: Db) -> io::Result<()> {
             ));
         }
 
-        // 소켓에서 데이터 읽기
-        let bytes_read: usize = socket.read(&mut buffer[..read_limit]).await?;
+        // 소켓에서 데이터 읽기, 타임아웃 처리. 중첩된 Result를 반환하기때문에 마지막에 물음표 두개로 처리
+        // 타임아웃되면 에러처리됨
+        let bytes_read = timeout(
+            READ_TIMEOUT,
+            socket.read(&mut buffer[..read_limit]),
+        ).await.map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "read timeout"))??;
+
         if bytes_read == 0 {
             // 연결종료 & 펜딩에 남은 데이터 없음
             return if pending.is_empty() {
