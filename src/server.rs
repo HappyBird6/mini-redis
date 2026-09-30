@@ -19,4 +19,3 @@ pub async fn run(address: &str) -> io::Result<()> {
         });
     }
 }
-
