@@ -78,3 +78,85 @@ pub async fn handle(mut socket: TcpStream, db: Db) -> io::Result<()> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::handle;
+    use crate::db::Db;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    /*
+    파이프라이닝 테스트
+    파이프라이닝 : 클라이언트가 응답을 기다리지 않고 여러 명령을 연속으로 보내는 방식
+     */
+    #[tokio::test]
+    async fn handles_pipelined_commands() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let db = Db::default();
+
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            handle(socket, db).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(address).await.unwrap();
+
+        let requests = concat!(
+            "*1\r\n$4\r\nPING\r\n",
+            "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$3\r\nkim\r\n",
+            "*2\r\n$3\r\nGET\r\n$4\r\nname\r\n",
+        );
+
+        client.write_all(requests.as_bytes()).await.unwrap();
+
+        let expected = b"+PONG\r\n+OK\r\n$3\r\nkim\r\n";
+        let mut response = vec![0; expected.len()];
+
+        client.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(response, expected);
+
+        drop(client);
+        server.await.unwrap();
+    }
+
+    /*
+    분할 수신 테스트
+    분할 수신 : 하나의 명령이 여러 TCP 패킷으로 들어오는 경우
+     */
+    #[tokio::test]
+    async fn handles_command_received_in_chunks() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let db = Db::default();
+
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            handle(socket, db).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(address).await.unwrap();
+
+        // 하나의 SET 명령을 여러 조각으로 전송
+        client.write_all(b"*3\r\n$3\r\nSE").await.unwrap();
+        tokio::task::yield_now().await;
+
+        client.write_all(b"T\r\n$4\r\nna").await.unwrap();
+        tokio::task::yield_now().await;
+
+        client.write_all(b"me\r\n$3\r\nkim\r").await.unwrap();
+        tokio::task::yield_now().await;
+
+        client.write_all(b"\n").await.unwrap();
+
+        let mut response = [0; 5];
+        client.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(&response, b"+OK\r\n");
+
+        drop(client);
+        server.await.unwrap();
+    }
+}
