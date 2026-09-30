@@ -1,6 +1,10 @@
+#![allow(unused)]
+
 use std::io::{self, ErrorKind};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+
+use crate::command::Command;
 
 const MAX_PENDING_BYTES: usize = 2 * 1024 * 1024; // 2 MiB
 
@@ -36,7 +40,7 @@ pub async fn handle(mut socket: TcpStream) -> io::Result<()> {
         loop {
             match crate::resp::parse(&pending) {
                 Ok(Some((frame, consumed))) => {
-                    // TODO: frame으로 명령을 실행하고 응답 전송
+                    let command = Command::from_frame(frame);
 
                     // 쓴 데이터 길이만큼 펜딩에서 제거
                     // TODO : 이후 처리량 많아지면 오프셋으로 처리한뒤 한번에 제거
