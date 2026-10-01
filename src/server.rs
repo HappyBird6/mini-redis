@@ -297,4 +297,31 @@ mod tests {
         assert_eq!(started.elapsed(), SERVER_WAITING_TIMEOUT);
         assert_eq!(semaphore.available_permits(), 1);
     }
+
+    // 신규 연결을 받지 않도록 리스닝 소켓 닫기
+    drop(listener);
+
+    // 종료를 알리는 true를 send
+    let _ = shutdown_sender.send(true);
+
+    // 기존 연결 태스크가 끝날 때까지 대기
+    // 강제 종료되었다면 connections.join_next()에 값이 남아있기때문에 이거 마저 처리하고 서버 종료
+    // graceful shutdown : 요청 처리와 응답 전송이 끝날 시간을 보장하는 것
+    let drained = timeout(SERVER_WAITING_TIMEOUT, async {
+        while let Some(result) = connections.join_next().await {
+            if let Err(error) = result {
+                eprintln!("connection task failed: {error}");
+            }
+        }
+    })
+    .await;
+
+    if drained.is_err() {
+        // 모든 태스크에 취소 요청
+        connections.abort_all(); 
+        // 태스트 끝날때까지 기다리고 connections에서 제거
+        while connections.join_next().await.is_some() {} 
+    }
+
+    Ok(())
 }
