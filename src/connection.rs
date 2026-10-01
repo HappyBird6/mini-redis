@@ -57,7 +57,13 @@ pub async fn handle(mut socket: TcpStream, db: Db) -> io::Result<()> {
                     frame을 command로 변경후 execute 함수로 넘기고 응답 frame 받아옴
                      */
                     let response = match Command::from_frame(frame) {
-                        Ok(command) => executor::execute(command, &db),
+                        Ok(command) => {
+                            if command==Command::Quit{
+                                socket.write_all(b"+OK\r\n").await?;
+                                return Ok(()); 
+                            }
+                            executor::execute(command, &db)
+                        },
                         Err(error) => resp::Frame::Error(error.message().to_owned()),
                     };
 

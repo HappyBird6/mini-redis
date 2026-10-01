@@ -18,6 +18,10 @@ pub fn execute(command: Command, db: &Db) -> Frame {
             //redis 삭제는 삭제한 갯수를 리턴한다고 함
             Frame::Integer(if deleted { 1 } else { 0 })
         }
+        Command::Quit => {
+            // Quit은 여기 도달할 일 없음. 커맨드 명시용 분기
+            unreachable!("QUIT must be handled in connection.rs")
+        }
     }
 }
 
