@@ -11,6 +11,7 @@ pub enum Command {
     Get { key: String },
     Set { key: String, value: Vec<u8> },
     Del { key: String }, // TODO : 여러키 삭제 아직 미구현
+    Quit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,6 +112,14 @@ impl Command {
 
             let key = next_key(&mut args)?;
             Ok(Self::Del { key })
+        } else if command.eq_ignore_ascii_case(b"QUIT") {
+            /*
+            @@@ Quit @@@
+             */
+            if args.len() != 0 {
+                return Err(CommandError::WrongArity);
+            }
+            Ok(Self::Quit)
         } else {
             Err(CommandError::UnknownCommand)
         }
