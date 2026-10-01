@@ -28,14 +28,18 @@ impl Db {
 
     /*
     write() 함수로 쓰기 락 획득(delete는 값을 변화시키는거라 쓰기락을 얻어야 됨)
-    remove() 
-        성공 -> Some(값) 반환 
+    remove()
+        성공 -> Some(값) 반환
         실패 -> None 반환
     is_some으로 bool로 변환
     세미콜론 X -> 표현식이 바로 반환됨
     */
     pub fn delete(&self, key: &str) -> bool {
-        self.entries.write().expect("db lock poisoned").remove(key).is_some()
+        self.entries
+            .write()
+            .expect("db lock poisoned")
+            .remove(key)
+            .is_some()
     }
 }
 
