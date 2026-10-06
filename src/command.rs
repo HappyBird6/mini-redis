@@ -11,6 +11,7 @@ pub enum Command {
     Get { key: String },
     Set { key: String, value: Vec<u8> },
     Del { key: String }, // TODO : 여러키 삭제 아직 미구현
+    Exp { key: String, seconds: i64 },
     Quit,
 }
 
