@@ -6,6 +6,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{watch, Semaphore};
 use tokio::task::JoinSet;
 use tokio::time::timeout;
+use tracing::{debug, error, info, warn};
 
 use crate::{connection, db::Db};
 
@@ -15,8 +16,7 @@ const MAXIMUM_CONNECTIONS: usize = 100;
 
 pub async fn run(address: &str) -> io::Result<()> {
     let listener = TcpListener::bind(address).await?;
-    println!("mini-redis echo server listening on {address}");
-
+    info!(%address, "server listening");
     // 클라이언트 모두 같은 DB
     let db = Db::default();
 
@@ -36,7 +36,10 @@ pub async fn run(address: &str) -> io::Result<()> {
     let result: io::Result<()> = loop {
         tokio::select! {
             _ = purge_timer.tick() => {
-                db.purge_expired();
+                let removed = db.purge_expired();
+                if removed > 0 {
+                    debug!(removed, "expired keys purged");
+                }
             }
             accepted = listener.accept() => {
                 let (socket, peer) = match accepted {
@@ -59,7 +62,7 @@ pub async fn run(address: &str) -> io::Result<()> {
                 // 컨트롤 c로 강제종료
                 match signal {
                     Ok(()) => {
-                        println!("shutdown signal received");
+                        info!("shutdown signal received");
                         break Ok(());
                     }
                     Err(error) => break Err(error),
@@ -70,7 +73,7 @@ pub async fn run(address: &str) -> io::Result<()> {
             // join_next()의 결과가 Some()일때의 분기 + 근데 connections가 비어있지 않아야 join_next를 기다림
             Some(result) = connections.join_next(), if !connections.is_empty() => {
                 if let Err(error) = result {
-                    eprintln!("connection task failed: {error}");
+                    error!(%error, "connection task failed");
                 }
             }
         }
@@ -100,7 +103,7 @@ async fn reject_connection(
 
         result = signal => {
             result?;
-            println!("shutdown signal received");
+            info!("shutdown signal received");
             Ok(AcceptOutcome::Shutdown)
         }
 
@@ -124,11 +127,10 @@ async fn accept_connection(
     let permit = match Arc::clone(semaphore).try_acquire_owned() {
         Ok(permit) => permit,
         Err(_) => {
+            warn!(%peer, limit = MAXIMUM_CONNECTIONS, "connection limit reached");
             return reject_connection(&mut socket, tokio::signal::ctrl_c()).await;
         }
     };
-
-    println!("client connected: {peer}");
 
     let db = db.clone();
     let shutdown = shutdown.clone();
@@ -137,32 +139,44 @@ async fn accept_connection(
         // 퍼밋하나 할당. 블록끝나면 자동 드랍으로 퍼밋 보충
         let _permit = permit;
 
-        if let Err(error) = connection::handle(socket, db, shutdown).await {
-            eprintln!("connection error ({peer}): {error}");
+        if let Err(error) = connection::handle(peer, socket, db, shutdown).await {
+            warn!(%peer, %error, "connection failed");
         }
     });
 
     Ok(AcceptOutcome::Continue)
 }
 async fn graceful_shutdown(mut connections: JoinSet<()>) {
+    info!(
+        remaining = connections.len(),
+        "waiting for connections to close"
+    );
+
     // 기존 연결 태스크가 끝날 때까지 대기
     // 강제 종료되었다면 connections.join_next()에 값이 남아있기때문에 이거 마저 처리하고 서버 종료
     // graceful shutdown : 요청 처리와 응답 전송이 끝날 시간을 보장하는 것
     let drained = timeout(SERVER_WAITING_TIMEOUT, async {
         while let Some(result) = connections.join_next().await {
             if let Err(error) = result {
-                eprintln!("connection task failed: {error}");
+                error!(%error,"connection task failed");
             }
         }
     })
     .await;
 
     if drained.is_err() {
+        warn!(
+            remaining = connections.len(),
+            "shutdown timed out; aborting connections"
+        );
+
         // 모든 태스크에 취소 요청
         connections.abort_all();
         // 태스트 끝날때까지 기다리고 connections에서 제거
         while connections.join_next().await.is_some() {}
     }
+
+    info!("connection cleanup completed");
 }
 
 #[cfg(test)]

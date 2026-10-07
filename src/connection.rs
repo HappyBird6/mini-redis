@@ -1,9 +1,11 @@
 use std::io::{self};
+use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 use tokio::time::timeout;
+use tracing::info;
 
 use crate::command::Command;
 use crate::db::Db;
@@ -13,11 +15,16 @@ use crate::resp;
 const MAX_PENDING_BYTES: usize = 2 * 1024 * 1024; // 2 MiB
 const READ_TIMEOUT: Duration = Duration::from_secs(60); // 타임아웃 60초
 
+// 함수 실행 자체를 추적, socket, db는 로그필드에서 제외
+#[tracing::instrument(skip(socket, db,shutdown), fields(peer = %peer))]
 pub async fn handle(
+    peer: SocketAddr,
     mut socket: TcpStream,
     db: Db,
     mut shutdown: watch::Receiver<bool>,
 ) -> io::Result<()> {
+    info!("client connected");
+
     let mut buffer = [0_u8; 4096];
     let mut pending: Vec<u8> = Vec::new();
     loop {
@@ -26,6 +33,7 @@ pub async fn handle(
         *로 역참조해서 bool값 가져옴
          */
         if *shutdown.borrow() {
+            info!(reason = "shutdown", "connection closing");
             return Ok(());
         }
 
@@ -51,6 +59,7 @@ pub async fn handle(
             biased;
 
             _ = shutdown.changed() =>{
+                info!(reason = "shutdown", "connection closing");
                 return Ok(());
             }
             result = timeout(
@@ -66,6 +75,7 @@ pub async fn handle(
         if bytes_read == 0 {
             // 연결종료 & 펜딩에 남은 데이터 없음
             return if pending.is_empty() {
+                info!(reason = "client_eof", "connection closing");
                 Ok(())
             } else {
                 // 남은 데이터 있는데 연결종료가 됨
@@ -91,11 +101,15 @@ pub async fn handle(
                         Ok(command) => {
                             if command == Command::Quit {
                                 socket.write_all(b"+OK\r\n").await?;
+                                info!(reason = "quit", "connection closing");
                                 return Ok(());
                             }
                             executor::execute(command, &db)
                         }
-                        Err(error) => resp::Frame::Error(error.message().to_owned()),
+                        Err(error) => {
+                            tracing::debug!(?error, "invalid command");
+                            resp::Frame::Error(error.message().to_owned())
+                        }
                     };
 
                     // 받은 frame을 encoder로 byte로 변환
@@ -144,8 +158,8 @@ mod tests {
         let db = Db::default();
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
         let server = tokio::spawn(async move {
-            let (socket, _) = listener.accept().await.unwrap();
-            handle(socket, db, shutdown_rx).await.unwrap();
+            let (socket, peer) = listener.accept().await.unwrap();
+            handle(peer, socket, db, shutdown_rx).await.unwrap();
         });
 
         let mut client = TcpStream::connect(address).await.unwrap();
@@ -187,8 +201,8 @@ mod tests {
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
 
         let server = tokio::spawn(async move {
-            let (socket, _) = listener.accept().await.unwrap();
-            handle(socket, db, shutdown_rx).await.unwrap();
+            let (socket, peer) = listener.accept().await.unwrap();
+            handle(peer, socket, db, shutdown_rx).await.unwrap();
         });
 
         let mut client = TcpStream::connect(address).await.unwrap();
@@ -228,8 +242,8 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let client = TcpStream::connect(address).await.unwrap();
-        let (socket, _) = listener.accept().await.unwrap();
-        let server = tokio::spawn(handle(socket, db, shutdown));
+        let (socket, peer) = listener.accept().await.unwrap();
+        let server = tokio::spawn(handle(peer, socket, db, shutdown));
         (client, server)
     }
 
@@ -265,9 +279,9 @@ mod tests {
         let mut client = TcpStream::connect(listener.local_addr().unwrap())
             .await
             .unwrap();
-        let (socket, _) = listener.accept().await.unwrap();
+        let (socket, peer) = listener.accept().await.unwrap();
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let handler = handle(socket, Db::default(), shutdown_rx);
+        let handler = handle(peer, socket, Db::default(), shutdown_rx);
         tokio::pin!(handler);
 
         // sleep 없이 핸들러를 먼저 poll해서 읽기 대기 상태로 만든다.
