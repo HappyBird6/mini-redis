@@ -11,6 +11,12 @@ struct Entry {
     expires_at: Option<Instant>,
 }
 
+impl Entry {
+    fn is_expired(&self, now: Instant) -> bool {
+        self.expires_at.is_some_and(|expires_at| expires_at <= now)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ExpireError {
     InvalidTime, // 0 또는 음수
@@ -41,12 +47,8 @@ impl Db {
             .get(key)
             //만료시에 값을 None으로 반환하기 위해 기존 map의 get() 결과를 and_then으로 처리
             .and_then(|entry| {
-                if let Some(expires_at) = entry.expires_at {
-                    if Instant::now() >= expires_at {
-                        None
-                    } else {
-                        Some(entry.value.clone())
-                    }
+                if entry.is_expired(Instant::now()) {
+                    None
                 } else {
                     Some(entry.value.clone())
                 }
@@ -66,7 +68,7 @@ impl Db {
             .write()
             .expect("db lock poisoned")
             .remove(key)
-            .is_some()
+            .is_some_and(|entry| !entry.is_expired(Instant::now()))
     }
 
     pub fn purge_expired(&self) -> usize {
@@ -74,10 +76,7 @@ impl Db {
         let now = Instant::now();
         let before = entries.len();
 
-        entries.retain(|_, entry| match entry.expires_at {
-            None => true,
-            Some(expires_at) => expires_at > now,
-        });
+        entries.retain(|_, entry| !entry.is_expired(now));
         before - entries.len()
     }
 
@@ -99,10 +98,8 @@ impl Db {
         // 수정가능한 get
         if let Some(entry) = entries.get_mut(key) {
             // 이미 만료됐으면? 리턴
-            if let Some(old_expired_at) = entry.expires_at {
-                if old_expired_at <= now {
-                    return Ok(false);
-                }
+            if entry.is_expired(now) {
+                return Ok(false);
             }
 
             entry.expires_at = Some(expires_at);
@@ -120,7 +117,7 @@ impl Db {
             None => -2,
             Some(entry) => {
                 if let Some(expires_at) = entry.expires_at {
-                    if expires_at <= now {
+                    if entry.is_expired(now) {
                         -2
                     } else {
                         let remaining_ms = expires_at.duration_since(now).as_millis();
@@ -134,21 +131,23 @@ impl Db {
     }
 }
 
+// 실제 대기 없이 과거/미래 만료 상태를 구성하는 테스트 도우미입니다.
+// executor 테스트에서도 쓰기 위해 크레이트 안에 공개합니다.
+#[cfg(test)]
+pub(crate) fn insert_with_expiration(db: &Db, key: &str, value: &[u8], expires_at: Instant) {
+    db.entries.write().expect("db lock poisoned").insert(
+        key.to_owned(),
+        Entry {
+            value: value.to_vec(),
+            expires_at: Some(expires_at),
+        },
+    );
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Db, Entry, ExpireError};
+    use super::{insert_with_expiration, Db, ExpireError};
     use std::time::{Duration, Instant};
-
-    // 실제 대기 없이 과거/미래 만료 상태를 구성하는 테스트 도우미입니다.
-    fn insert_with_expiration(db: &Db, key: &str, value: &[u8], expires_at: Instant) {
-        db.entries.write().expect("db lock poisoned").insert(
-            key.to_owned(),
-            Entry {
-                value: value.to_vec(),
-                expires_at: Some(expires_at),
-            },
-        );
-    }
 
     #[test]
     fn ttl_returns_minus_two_for_missing_and_expired_keys() {
@@ -422,5 +421,25 @@ mod tests {
         assert!(db.delete("language"));
         assert_eq!(db.get("language"), None);
         assert!(!db.delete("language"));
+    }
+
+    #[test]
+    fn delete_treats_unpurged_expired_key_as_missing() {
+        let db = Db::default();
+        let now = Instant::now();
+        insert_with_expiration(&db, "expired", b"old", now - Duration::from_secs(1));
+        insert_with_expiration(&db, "future", b"keep", now + Duration::from_secs(3600));
+
+        // purge 전이라 맵에는 남아 있지만 논리적으로는 없는 키이므로 false입니다.
+        assert!(!db.delete("expired"));
+        assert!(!db
+            .entries
+            .read()
+            .expect("db lock poisoned")
+            .contains_key("expired"));
+
+        // 아직 만료되지 않은 키는 기존처럼 삭제에 성공합니다.
+        assert!(db.delete("future"));
+        assert!(db.entries.read().expect("db lock poisoned").is_empty());
     }
 }

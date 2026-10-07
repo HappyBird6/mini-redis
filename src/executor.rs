@@ -40,7 +40,9 @@ pub fn execute(command: Command, db: &Db) -> Frame {
 #[cfg(test)]
 mod tests {
     use super::execute;
+    use crate::db::insert_with_expiration;
     use crate::{command::Command, db::Db, resp::Frame};
+    use std::time::{Duration, Instant};
 
     #[test]
     fn ping_returns_pong() {
@@ -192,5 +194,25 @@ mod tests {
         );
         assert_eq!(db.get("name"), None);
         assert_eq!(db.get("other"), Some(b"keep".to_vec()));
+    }
+
+    #[test]
+    fn del_returns_zero_for_expired_key_before_purge() {
+        let db = Db::default();
+        insert_with_expiration(
+            &db,
+            "expired",
+            b"old",
+            Instant::now() - Duration::from_secs(1),
+        );
+        assert_eq!(
+            execute(
+                Command::Del {
+                    key: "expired".to_owned()
+                },
+                &db
+            ),
+            Frame::Integer(0)
+        );
     }
 }
