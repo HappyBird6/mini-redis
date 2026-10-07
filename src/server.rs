@@ -29,8 +29,15 @@ pub async fn run(address: &str) -> io::Result<()> {
     // watch 채널 생성 -> 종료 신호 전달하기 위함 (Sender, Receiver), false는 안닫혔다는 의미, 인자로 bool 받음
     let (shutdown_sender, shutdown_receiver) = watch::channel(false);
 
+    // 만료 키 삭제 타이머 추가
+    let mut purge_timer = tokio::time::interval(Duration::from_secs(1));
+    purge_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
     let result: io::Result<()> = loop {
         tokio::select! {
+            _ = purge_timer.tick() => {
+                db.purge_expired();
+            }
             accepted = listener.accept() => {
                 let (socket, peer) = match accepted {
                     Ok(connection) => connection,
