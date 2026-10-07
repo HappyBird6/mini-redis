@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+use crate::db::ExpireError;
 use crate::{command::Command, db::Db, resp::Frame};
 
 pub fn execute(command: Command, db: &Db) -> Frame {
@@ -18,6 +19,16 @@ pub fn execute(command: Command, db: &Db) -> Frame {
             //redis 삭제는 삭제한 갯수를 리턴한다고 함
             Frame::Integer(if deleted { 1 } else { 0 })
         }
+        Command::Exp { key, seconds } => match db.set_expired_time(&key, seconds) {
+            Ok(true) => Frame::Integer(1),
+            Ok(false) => Frame::Integer(0),
+            Err(ExpireError::InvalidTime) => {
+                Frame::Error("ERR expire time must be positive".to_owned())
+            }
+            Err(ExpireError::OutOfRange) => {
+                Frame::Error("ERR expire time is out of range".to_owned())
+            }
+        },
         Command::Quit => {
             // Quit은 여기 도달할 일 없음. 커맨드 명시용 분기
             unreachable!("QUIT must be handled in connection.rs")
