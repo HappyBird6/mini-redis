@@ -12,6 +12,7 @@ pub enum Command {
     Set { key: String, value: Vec<u8> },
     Del { key: String }, // TODO : 여러키 삭제 아직 미구현
     Expire { key: String, seconds: i64 },
+    Ttl { key: String },
     Quit,
 }
 

@@ -29,6 +29,7 @@ pub fn execute(command: Command, db: &Db) -> Frame {
                 Frame::Error("ERR expire time is out of range".to_owned())
             }
         },
+        Command::Ttl { key } => Frame::Integer(db.ttl(&key)),
         Command::Quit => {
             // Quit은 여기 도달할 일 없음. 커맨드 명시용 분기
             unreachable!("QUIT must be handled in connection.rs")
