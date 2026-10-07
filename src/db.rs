@@ -111,6 +111,27 @@ impl Db {
 
         Ok(false)
     }
+
+    pub fn ttl(&self, key: &str) -> i64 {
+        let entries = self.entries.read().expect("db lock poisoned");
+        let now = Instant::now();
+
+        match entries.get(key) {
+            None => -2,
+            Some(entry) => {
+                if let Some(expires_at) = entry.expires_at {
+                    if expires_at <= now {
+                        -2
+                    } else {
+                        let remaining_ms = expires_at.duration_since(now).as_millis();
+                        ((remaining_ms + 500) / 1000) as i64
+                    }
+                } else {
+                    -1
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -127,6 +148,55 @@ mod tests {
                 expires_at: Some(expires_at),
             },
         );
+    }
+
+    #[test]
+    fn ttl_returns_minus_two_for_missing_and_expired_keys() {
+        let db = Db::default();
+        assert_eq!(db.ttl("missing"), -2);
+        insert_with_expiration(
+            &db,
+            "expired",
+            b"old",
+            Instant::now() - Duration::from_secs(1),
+        );
+        // 주기적 정리가 실행되기 전에도 만료된 키는 없는 키로 취급합니다.
+        assert_eq!(db.ttl("expired"), -2);
+        assert_eq!(db.purge_expired(), 1);
+        assert_eq!(db.ttl("expired"), -2);
+    }
+
+    #[test]
+    fn ttl_returns_minus_one_without_expiration_and_after_overwrite() {
+        let db = Db::default();
+        db.set("key".to_owned(), b"old".to_vec());
+        assert_eq!(db.ttl("key"), -1);
+        assert_eq!(db.set_expired_time("key", 3600), Ok(true));
+        db.set("key".to_owned(), b"new".to_vec());
+        assert_eq!(db.ttl("key"), -1);
+        assert_eq!(db.get("key"), Some(b"new".to_vec()));
+    }
+
+    #[test]
+    fn ttl_reads_configured_deadline_without_changing_entry() {
+        let db = Db::default();
+        db.set("key".to_owned(), b"keep".to_vec());
+        assert_eq!(db.set_expired_time("key", 3600), Ok(true));
+        let deadline = db.entries.read().unwrap()["key"].expires_at.unwrap();
+
+        // 실제 호출은 두 관측 시점 사이에서 실행되므로 해당 범위에 있어야 합니다.
+        let before = Instant::now();
+        let actual = db.ttl("key");
+        let after = Instant::now();
+        let entries = db.entries.read().unwrap();
+        let entry = &entries["key"];
+        let upper = deadline.saturating_duration_since(before).as_secs() as i64 + 1;
+        let lower = deadline.saturating_duration_since(after).as_secs() as i64;
+        assert!(actual <= upper);
+        assert!(actual >= lower);
+        assert!(actual >= 0);
+        assert_eq!(entry.value, b"keep");
+        assert_eq!(entry.expires_at, Some(deadline));
     }
 
     #[test]
