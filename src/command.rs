@@ -11,7 +11,7 @@ pub enum Command {
     Get { key: String },
     Set { key: String, value: Vec<u8> },
     Del { key: String }, // TODO : 여러키 삭제 아직 미구현
-    Exp { key: String, seconds: i64 },
+    Expire { key: String, seconds: i64 },
     Quit,
 }
 
@@ -23,6 +23,7 @@ pub enum CommandError {
     InvalidUtf8Key,
     UnknownCommand,
     WrongArity,
+    InvalidInteger,
 }
 impl CommandError {
     pub fn message(&self) -> &'static str {
@@ -33,6 +34,7 @@ impl CommandError {
             Self::InvalidUtf8Key => "ERR key must be valid UTF-8",
             Self::UnknownCommand => "ERR unknown command",
             Self::WrongArity => "ERR wrong number of arguments",
+            Self::InvalidInteger => "ERR invalid integer",
         }
     }
 }
@@ -113,6 +115,21 @@ impl Command {
 
             let key = next_key(&mut args)?;
             Ok(Self::Del { key })
+        } else if command.eq_ignore_ascii_case(b"EXPIRE") {
+            /*
+            @@@ EXPIRE @@@
+             */
+            if args.len() != 2 {
+                return Err(CommandError::WrongArity);
+            }
+
+            let key = next_key(&mut args)?;
+            let bytes = next_bytes(&mut args)?;
+            let seconds = std::str::from_utf8(&bytes)
+                .map_err(|_| CommandError::InvalidInteger)?
+                .parse::<i64>()
+                .map_err(|_| CommandError::InvalidInteger)?;
+            Ok(Self::Expire { key, seconds })
         } else if command.eq_ignore_ascii_case(b"QUIT") {
             /*
             @@@ Quit @@@
@@ -322,4 +339,84 @@ mod tests {
             Err(CommandError::UnknownCommand)
         );
     }
+    /*
+    Expire 테스트
+     */
+    #[test]
+    fn parses_expire() {
+        for name in [b"EXPIRE".as_slice(), b"eXpIrE"] {
+            assert_eq!(
+                Command::from_frame(request(&[name, b"name", b"10"])),
+                Ok(Command::Expire {
+                    key: "name".to_owned(),
+                    seconds: 10,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn parses_expire_with_zero_and_negative_seconds() {
+        for (seconds, expected) in [(b"0".as_slice(), 0), (b"-10".as_slice(), -10)] {
+            assert_eq!(
+                Command::from_frame(request(&[b"EXPIRE", b"name", seconds])),
+                Ok(Command::Expire {
+                    key: "name".to_owned(),
+                    seconds: expected,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_expire_with_wrong_argument_count() {
+        let cases: &[&[&[u8]]] = &[
+            &[b"EXPIRE"],
+            &[b"EXPIRE", b"name"],
+            &[b"EXPIRE", b"name", b"10", b"extra"],
+        ];
+
+        for parts in cases {
+            assert_eq!(
+                Command::from_frame(request(parts)),
+                Err(CommandError::WrongArity)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_expire_with_invalid_integer() {
+        let cases: &[&[u8]] = &[
+            b"",
+            b"abc",
+            b"1.5",
+            b"9223372036854775808",
+            b"-9223372036854775809",
+            &[0xff],
+        ];
+
+        for seconds in cases {
+            assert_eq!(
+                Command::from_frame(request(&[b"EXPIRE", b"name", seconds])),
+                Err(CommandError::InvalidInteger)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_expire_with_non_bulk_seconds() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"EXPIRE".to_vec()),
+            Frame::BulkString(b"name".to_vec()),
+            Frame::Integer(10),
+        ]);
+
+        assert_eq!(
+            Command::from_frame(frame),
+            Err(CommandError::ExpectedBulkString)
+        );
+    }
+    /*
+    Expire 테스트 끝
+     */
 }
