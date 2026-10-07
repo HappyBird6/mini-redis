@@ -131,7 +131,17 @@ impl Command {
                 .parse::<i64>()
                 .map_err(|_| CommandError::InvalidInteger)?;
             Ok(Self::Expire { key, seconds })
-        } else if command.eq_ignore_ascii_case(b"QUIT") {
+        } else if command.eq_ignore_ascii_case(b"TTL"){
+            /*
+            @@@ TTL @@@
+             */
+            if args.len() != 1 {
+                return Err(CommandError::WrongArity);
+            }
+
+            let key = next_key(&mut args)?;
+            Ok(Self::Ttl { key })
+        }else if command.eq_ignore_ascii_case(b"QUIT") {
             /*
             @@@ Quit @@@
              */
