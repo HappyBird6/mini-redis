@@ -71,6 +71,9 @@ fn parse_inner(buffer: &[u8], depth: usize) -> Result<Option<(Frame, usize)>, Pa
             Ok(Some((frame, line_end + 2)))
         }
         b'$' => {
+            /*
+            BulkString
+            */
             // CRLF 인덱스 찾기 -> 헤더에 적힌 벌크스트링 사이즈 구하기 위해
             let Some(line_end) = buffer.windows(2).position(|p| p == b"\r\n") else {
                 // 못찾으면 데이터 부족
@@ -114,6 +117,9 @@ fn parse_inner(buffer: &[u8], depth: usize) -> Result<Option<(Frame, usize)>, Pa
             Ok(Some((Frame::BulkString(data), consumed)))
         }
         b'*' => {
+            /*
+            Array
+             */
             // TODO: 불완전한 배열의 경우 원소들을 파싱하지만 사용하지않음. 이미 파싱한 원소 재사용 방법 강구
 
             // 재귀로 인한 스택오버플로 체크

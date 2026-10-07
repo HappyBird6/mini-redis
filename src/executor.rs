@@ -19,7 +19,7 @@ pub fn execute(command: Command, db: &Db) -> Frame {
             //redis 삭제는 삭제한 갯수를 리턴한다고 함
             Frame::Integer(if deleted { 1 } else { 0 })
         }
-        Command::Exp { key, seconds } => match db.set_expired_time(&key, seconds) {
+        Command::Expire { key, seconds } => match db.set_expired_time(&key, seconds) {
             Ok(true) => Frame::Integer(1),
             Ok(false) => Frame::Integer(0),
             Err(ExpireError::InvalidTime) => {
