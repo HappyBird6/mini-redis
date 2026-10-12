@@ -14,10 +14,15 @@ pub fn execute(command: Command, db: &Db) -> Frame {
             Some(value) => Frame::BulkString(value),
             None => Frame::Null,
         },
-        Command::Del { key } => {
-            let deleted = db.delete(&key);
+        Command::Del { keys } => {
+            let mut count = 0;
+            for key in &keys {
+                if db.delete(key) {
+                    count += 1;
+                }
+            }
             //redis 삭제는 삭제한 갯수를 리턴한다고 함
-            Frame::Integer(if deleted { 1 } else { 0 })
+            Frame::Integer(count)
         }
         Command::Expire { key, seconds } => match db.set_expired_time(&key, seconds) {
             Ok(true) => Frame::Integer(1),
@@ -78,7 +83,7 @@ mod tests {
         assert_eq!(
             execute(
                 Command::Del {
-                    key: "name".to_owned()
+                    keys: vec!["name".to_owned()],
                 },
                 &db
             ),
@@ -96,7 +101,7 @@ mod tests {
         assert_eq!(
             execute(
                 Command::Del {
-                    key: "name".to_owned()
+                    keys: vec!["name".to_owned()],
                 },
                 &db
             ),
@@ -119,7 +124,7 @@ mod tests {
         assert_eq!(
             execute(
                 Command::Del {
-                    key: "missing".to_owned()
+                    keys: vec!["missing".to_owned()],
                 },
                 &db
             ),
@@ -186,7 +191,7 @@ mod tests {
         assert_eq!(
             execute(
                 Command::Del {
-                    key: "name".to_owned()
+                    keys: vec!["name".to_owned()],
                 },
                 &db
             ),
@@ -208,11 +213,45 @@ mod tests {
         assert_eq!(
             execute(
                 Command::Del {
-                    key: "expired".to_owned()
+                    keys: vec!["expired".to_owned()],
                 },
                 &db
             ),
             Frame::Integer(0)
+        );
+    }
+
+    #[test]
+    fn del_returns_number_of_deleted_keys() {
+        let db = Db::default();
+        db.set("a".to_owned(), b"1".to_vec());
+        db.set("b".to_owned(), b"2".to_vec());
+        db.set("keep".to_owned(), b"3".to_vec());
+        assert_eq!(
+            execute(
+                Command::Del {
+                    keys: vec!["a".to_owned(), "missing".to_owned(), "b".to_owned()],
+                },
+                &db
+            ),
+            Frame::Integer(2)
+        );
+        assert_eq!(db.get("a"), None);
+        assert_eq!(db.get("keep"), Some(b"3".to_vec()));
+    }
+
+    #[test]
+    fn del_counts_duplicate_key_once() {
+        let db = Db::default();
+        db.set("a".to_owned(), b"1".to_vec());
+        assert_eq!(
+            execute(
+                Command::Del {
+                    keys: vec!["a".to_owned(), "a".to_owned()],
+                },
+                &db
+            ),
+            Frame::Integer(1)
         );
     }
 }
