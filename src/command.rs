@@ -10,7 +10,7 @@ pub enum Command {
     Ping,
     Get { key: String },
     Set { key: String, value: Vec<u8> },
-    Del { key: String }, // TODO : 여러키 삭제 아직 미구현
+    Del { keys: Vec<String> },
     Expire { key: String, seconds: i64 },
     Ttl { key: String },
     Quit,
@@ -110,12 +110,15 @@ impl Command {
             /*
             @@@ Del @@@
              */
-            if args.len() != 1 {
+            if args.len() < 1 {
                 return Err(CommandError::WrongArity);
             }
 
-            let key = next_key(&mut args)?;
-            Ok(Self::Del { key })
+            let mut keys = Vec::new();
+            while args.len() > 0 {
+                keys.push(next_key(&mut args)?);
+            }
+            Ok(Self::Del { keys })
         } else if command.eq_ignore_ascii_case(b"EXPIRE") {
             /*
             @@@ EXPIRE @@@
@@ -131,7 +134,7 @@ impl Command {
                 .parse::<i64>()
                 .map_err(|_| CommandError::InvalidInteger)?;
             Ok(Self::Expire { key, seconds })
-        } else if command.eq_ignore_ascii_case(b"TTL"){
+        } else if command.eq_ignore_ascii_case(b"TTL") {
             /*
             @@@ TTL @@@
              */
@@ -141,7 +144,7 @@ impl Command {
 
             let key = next_key(&mut args)?;
             Ok(Self::Ttl { key })
-        }else if command.eq_ignore_ascii_case(b"QUIT") {
+        } else if command.eq_ignore_ascii_case(b"QUIT") {
             /*
             @@@ Quit @@@
              */
@@ -201,7 +204,7 @@ mod tests {
         assert_eq!(
             Command::from_frame(request(&[b"DEL", b"name"])),
             Ok(Command::Del {
-                key: "name".to_owned()
+                keys: vec!["name".to_owned()],
             })
         );
     }
@@ -226,7 +229,7 @@ mod tests {
             (
                 vec![b"dEl".as_slice(), b"name"],
                 Command::Del {
-                    key: "name".to_owned(),
+                    keys: vec!["name".to_owned()],
                 },
             ),
         ] {
@@ -244,7 +247,6 @@ mod tests {
             &[b"SET", b"name"],
             &[b"SET", b"name", b"kim", b"extra"],
             &[b"DEL"],
-            &[b"DEL", b"name", b"extra"],
         ];
         for parts in cases {
             assert_eq!(
@@ -253,6 +255,24 @@ mod tests {
                 "input: {parts:?}"
             );
         }
+    }
+
+    #[test]
+    fn parses_del_with_multiple_keys() {
+        assert_eq!(
+            Command::from_frame(request(&[b"DEL", b"a", b"b", b"c"])),
+            Ok(Command::Del {
+                keys: vec!["a".to_owned(), "b".to_owned(), "c".to_owned()],
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_del_with_invalid_utf8_key_among_many() {
+        assert_eq!(
+            Command::from_frame(request(&[b"DEL", b"a", &[0xff]])),
+            Err(CommandError::InvalidUtf8Key)
+        );
     }
 
     #[test]
