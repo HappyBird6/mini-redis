@@ -13,7 +13,8 @@ use crate::executor;
 use crate::resp;
 
 const MAX_PENDING_BYTES: usize = 2 * 1024 * 1024; // 2 MiB
-const READ_TIMEOUT: Duration = Duration::from_secs(60); // 타임아웃 60초
+const READ_TIMEOUT: Duration = Duration::from_secs(60); // 읽기 타임아웃 60초
+const WRITE_TIMEOUT: Duration = Duration::from_secs(10); // 쓰기 타임아웃 10초
 
 // 함수 실행 자체를 추적, socket, db는 로그필드에서 제외
 #[tracing::instrument(skip(socket, db,shutdown), fields(peer = %peer))]
@@ -100,7 +101,13 @@ pub async fn handle(
                     let response = match Command::from_frame(frame) {
                         Ok(command) => {
                             if command == Command::Quit {
-                                socket.write_all(b"+OK\r\n").await?;
+                                // 쓰기에 타임 아웃 체크
+                                timeout(WRITE_TIMEOUT, socket.write_all(b"+OK\r\n"))
+                                    .await
+                                    .map_err(|_| {
+                                        io::Error::new(io::ErrorKind::TimedOut, "write timeout")
+                                    })??;
+
                                 info!(reason = "quit", "connection closing");
                                 return Ok(());
                             }
@@ -121,7 +128,9 @@ pub async fn handle(
                     })?;
 
                     // 응답 전송
-                    socket.write_all(&response_bytes).await?;
+                    timeout(WRITE_TIMEOUT, socket.write_all(&response_bytes))
+                        .await
+                        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "write timeout"))??;
                 }
                 Ok(None) => {
                     // 데이터 부족 read에서 데이터를 더 받아와야함
@@ -140,7 +149,7 @@ pub async fn handle(
 
 #[cfg(test)]
 mod tests {
-    use super::handle;
+    use super::{handle, WRITE_TIMEOUT};
     use crate::db::Db;
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -346,5 +355,39 @@ mod tests {
             b"-ERR wrong number of arguments\r\n+PONG\r\n+OK\r\n",
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn write_timeout_closes_connection_when_client_does_not_read() {
+        let db = Db::default();
+        // TCP 버퍼에 모두 들어가지 않는 큰 응답으로 쓰기 대기를 유발한다.
+        db.set("large".to_owned(), vec![b'x'; 32 * 1024 * 1024]);
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (mut client, server) = start_connection(db, shutdown_rx).await;
+
+        client
+            .write_all(b"*2\r\n$3\r\nGET\r\n$5\r\nlarge\r\n")
+            .await
+            .unwrap();
+
+        // client를 유지하되 응답을 읽지 않아 서버의 전송을 막는다.
+        let error = timeout(WRITE_TIMEOUT + Duration::from_secs(5), server)
+            .await
+            .expect("connection did not finish after write timeout")
+            .expect("connection task panicked")
+            .expect_err("unread response should cause a write timeout");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert_eq!(error.to_string(), "write timeout");
+
+        // 일부 전송된 응답 이후 EOF가 도착해야 한다.
+        let received = timeout(
+            Duration::from_secs(2),
+            tokio::io::copy(&mut client, &mut tokio::io::sink()),
+        )
+        .await
+        .expect("connection did not close after write timeout")
+        .unwrap();
+        assert!(received < (32 * 1024 * 1024) as u64);
     }
 }
