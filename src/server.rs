@@ -58,8 +58,8 @@ pub async fn run(address: &str) -> io::Result<()> {
                     break Ok(());
                 }
             }
-            signal = tokio::signal::ctrl_c() => {
-                // 컨트롤 c로 강제종료
+            signal = shutdown_signal() => {
+                // Ctrl+C 또는 SIGTERM을 받으면 정상 종료 시작
                 match signal {
                     Ok(()) => {
                         info!("shutdown signal received");
@@ -128,7 +128,7 @@ async fn accept_connection(
         Ok(permit) => permit,
         Err(_) => {
             warn!(%peer, limit = MAXIMUM_CONNECTIONS, "connection limit reached");
-            return reject_connection(&mut socket, tokio::signal::ctrl_c()).await;
+            return reject_connection(&mut socket, shutdown_signal()).await;
         }
     };
 
@@ -178,11 +178,83 @@ async fn graceful_shutdown(mut connections: JoinSet<()>) {
 
     info!("connection cleanup completed");
 }
+async fn shutdown_signal() -> io::Result<()> {
+    // Unix 계열일때 여기 컴파일
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
 
+        let mut terminate = signal(SignalKind::terminate())?;
+
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => result,
+            _ = terminate.recv() => Ok(()),
+        }
+    }
+    // Unix 계열이 아니면 컴파일
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
     use tokio::io::AsyncReadExt;
+
+    // 종료 신호는 프로세스 전체에 영향을 주므로 별도 테스트 프로세스에서 검증한다.
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_signal_receives_sigterm_and_sigint() {
+        const SIGNAL_ENV: &str = "MINI_REDIS_TEST_SHUTDOWN_SIGNAL";
+        if let Ok(signal_name) = std::env::var(SIGNAL_ENV) {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async {
+                let signal = shutdown_signal();
+                tokio::pin!(signal);
+
+                // 먼저 poll하여 두 종료 신호의 핸들러를 등록한다.
+                tokio::select! {
+                    biased;
+                    result = &mut signal => panic!("signal completed before delivery: {result:?}"),
+                    _ = std::future::ready(()) => {}
+                }
+
+                let status = std::process::Command::new("kill")
+                    .arg(format!("-{signal_name}"))
+                    .arg(std::process::id().to_string())
+                    .status()
+                    .unwrap();
+                assert!(status.success());
+                timeout(Duration::from_secs(2), &mut signal)
+                    .await
+                    .expect("shutdown signal was not received")
+                    .expect("shutdown signal returned an error");
+            });
+            return;
+        }
+
+        for signal_name in ["TERM", "INT"] {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "server::tests::shutdown_signal_receives_sigterm_and_sigint",
+                    "--nocapture",
+                ])
+                .env(SIGNAL_ENV, signal_name)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{signal_name} subprocess failed: {} {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+        }
+    }
 
     async fn socket_pair() -> (TcpStream, TcpStream, SocketAddr) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
