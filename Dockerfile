@@ -17,4 +17,5 @@ RUN cargo build
 
 EXPOSE 6379
 
-CMD ["cargo", "run"]
+# CMD ["cargo", "run"]
+CMD ["/app/target/debug/mini-redis"]
