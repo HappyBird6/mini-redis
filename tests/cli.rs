@@ -1,3 +1,4 @@
+use rustyline::DefaultEditor;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Command, Stdio};
@@ -102,6 +103,23 @@ fn run_case(
     expected_stdout: &str,
     expected_stderr: Option<&str>,
 ) {
+    // 히스토리를 사용자 파일과 분리하고, 테스트마다 빈 디렉터리에서 시작한다.
+    let test_dir = std::env::temp_dir().join(format!(
+        "mini-redis-cli-history-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+    ));
+    std::fs::create_dir(&test_dir).unwrap();
+    let history_path = test_dir.join(".mini-redis-cli-history");
+    let preloaded = input.starts_with("UNKNOWN");
+    if preloaded {
+        let mut editor = DefaultEditor::new().unwrap();
+        editor.add_history_entry("GET previous").unwrap();
+        editor.save_history(&history_path).unwrap();
+    }
     let listener = TcpListener::bind("127.0.0.1:6379")
         .expect("CLI test requires port 6379 to be free; stop mini-redis first");
     listener.set_nonblocking(true).unwrap();
@@ -126,6 +144,7 @@ fn run_case(
         respond(socket);
     });
     let mut child = Command::new(env!("CARGO_BIN_EXE_mini-redis-cli"))
+        .current_dir(&test_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -166,4 +185,26 @@ fn run_case(
         }
         assert!(stderr.contains(message), "stderr: {stderr}");
     }
+
+    if success {
+        // 첫 실행의 파일 생성, EOF/QUIT 저장, 기존 기록 보존을 실제 파일로 확인한다.
+        let mut editor = DefaultEditor::new().unwrap();
+        editor.load_history(&history_path).unwrap();
+        let saved: Vec<_> = editor.history().iter().map(String::as_str).collect();
+        let mut expected = Vec::new();
+        if preloaded {
+            expected.push("GET previous");
+        }
+        for line in input.lines().map(str::trim).filter(|line| !line.is_empty()) {
+            expected.push(line);
+            if line.trim_matches('"').eq_ignore_ascii_case("QUIT") {
+                break;
+            }
+        }
+        assert_eq!(saved, expected, "unexpected saved history");
+    }
+    if history_path.exists() {
+        std::fs::remove_file(&history_path).unwrap();
+    }
+    std::fs::remove_dir(&test_dir).unwrap();
 }
