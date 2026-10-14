@@ -29,6 +29,19 @@ pub struct Db {
 }
 
 impl Db {
+    fn remove_if_expired(entries: &mut HashMap<String, Entry>, key: &str, now: Instant) -> bool {
+        let expired = entries.get(key).is_some_and(|entry| entry.is_expired(now));
+        if expired {
+            entries.remove(key);
+        }
+        expired
+    }
+
+    fn lock_and_remove_if_expired(&self, key: &str) {
+        let mut entries = self.entries.write().expect("db lock poisoned");
+        Self::remove_if_expired(&mut entries, key, Instant::now());
+    }
+
     pub fn set(&self, key: String, value: Vec<u8>) {
         let entry = Entry {
             value,
@@ -41,18 +54,23 @@ impl Db {
     }
 
     pub fn get(&self, key: &str) -> Option<Vec<u8>> {
-        self.entries
-            .read()
-            .expect("db lock poisoned")
-            .get(key)
-            //만료시에 값을 None으로 반환하기 위해 기존 map의 get() 결과를 and_then으로 처리
-            .and_then(|entry| {
-                if entry.is_expired(Instant::now()) {
-                    None
-                } else {
-                    Some(entry.value.clone())
+        let expired = {
+            let entries = self.entries.read().expect("db lock poisoned");
+            match entries.get(key) {
+                None => return None,
+                Some(entry) => {
+                    if !entry.is_expired(Instant::now()) {
+                        return Some(entry.value.clone());
+                    }
+                    true
                 }
-            })
+            }
+        };
+
+        if expired {
+            self.lock_and_remove_if_expired(key);
+        }
+        None
     }
 
     /*
@@ -95,13 +113,13 @@ impl Db {
             return Err(ExpireError::OutOfRange);
         };
 
+        let expired = Self::remove_if_expired(&mut entries, key, now);
+        if expired {
+            return Ok(false);
+        }
+
         // 수정가능한 get
         if let Some(entry) = entries.get_mut(key) {
-            // 이미 만료됐으면? 리턴
-            if entry.is_expired(now) {
-                return Ok(false);
-            }
-
             entry.expires_at = Some(expires_at);
             return Ok(true);
         }
@@ -110,24 +128,29 @@ impl Db {
     }
 
     pub fn ttl(&self, key: &str) -> i64 {
-        let entries = self.entries.read().expect("db lock poisoned");
-        let now = Instant::now();
+        let expired = {
+            let entries = self.entries.read().expect("db lock poisoned");
+            let now = Instant::now();
 
-        match entries.get(key) {
-            None => -2,
-            Some(entry) => {
-                if let Some(expires_at) = entry.expires_at {
-                    if entry.is_expired(now) {
-                        -2
-                    } else {
-                        let remaining_ms = expires_at.duration_since(now).as_millis();
-                        ((remaining_ms + 500) / 1000) as i64
+            match entries.get(key) {
+                None => return -2,
+                Some(entry) => match entry.expires_at {
+                    None => return -1,
+                    Some(expires_at) => {
+                        if !entry.is_expired(now) {
+                            let remaining_ms = expires_at.duration_since(now).as_millis();
+                            return ((remaining_ms + 500) / 1000) as i64;
+                        }
+                        true
                     }
-                } else {
-                    -1
-                }
+                },
             }
+        };
+
+        if expired {
+            self.lock_and_remove_if_expired(key);
         }
+        -2
     }
 }
 
@@ -161,7 +184,8 @@ mod tests {
         );
         // 주기적 정리가 실행되기 전에도 만료된 키는 없는 키로 취급합니다.
         assert_eq!(db.ttl("expired"), -2);
-        assert_eq!(db.purge_expired(), 1);
+        // 접근하는 순간 만료된 키가 삭제되므로 정리할 키가 남아 있지 않습니다.
+        assert_eq!(db.purge_expired(), 0);
         assert_eq!(db.ttl("expired"), -2);
     }
 
@@ -276,7 +300,8 @@ mod tests {
 
         // purge를 호출하지 않아도 GET 자체가 만료된 값을 숨겨야 합니다.
         assert_eq!(db.get("language"), None);
-        assert!(db
+        // 만료된 키는 읽는 순간 삭제됩니다.
+        assert!(!db
             .entries
             .read()
             .expect("db lock poisoned")
@@ -313,17 +338,64 @@ mod tests {
     }
 
     #[test]
-    fn set_expired_time_does_not_revive_expired_key() {
+    fn set_expired_time_removes_expired_key_without_reviving_it() {
         let db = Db::default();
         let deadline = Instant::now() - Duration::from_secs(1);
         insert_with_expiration(&db, "expired", b"old", deadline);
 
         assert_eq!(db.set_expired_time("expired", 3600), Ok(false));
         assert_eq!(db.get("expired"), None);
-        assert_eq!(
-            db.entries.read().unwrap()["expired"].expires_at,
-            Some(deadline)
+        // 되살리지 않고 삭제만 합니다.
+        assert!(!db.entries.read().unwrap().contains_key("expired"));
+    }
+
+    #[test]
+    fn get_removes_expired_key_on_access() {
+        let db = Db::default();
+        insert_with_expiration(
+            &db,
+            "expired",
+            b"old",
+            Instant::now() - Duration::from_secs(1),
         );
+
+        assert_eq!(db.get("expired"), None);
+        assert!(!db.entries.read().unwrap().contains_key("expired"));
+        assert_eq!(db.purge_expired(), 0);
+    }
+
+    #[test]
+    fn ttl_removes_expired_key_on_access() {
+        let db = Db::default();
+        insert_with_expiration(
+            &db,
+            "expired",
+            b"old",
+            Instant::now() - Duration::from_secs(1),
+        );
+
+        assert_eq!(db.ttl("expired"), -2);
+        assert!(!db.entries.read().unwrap().contains_key("expired"));
+        assert_eq!(db.purge_expired(), 0);
+    }
+
+    #[test]
+    fn get_keeps_live_keys_and_allows_overwrite_after_expired_access() {
+        let db = Db::default();
+        db.set("live".to_owned(), b"keep".to_vec());
+        insert_with_expiration(
+            &db,
+            "expired",
+            b"old",
+            Instant::now() - Duration::from_secs(1),
+        );
+
+        assert_eq!(db.get("expired"), None);
+        assert_eq!(db.get("live"), Some(b"keep".to_vec()));
+
+        db.set("expired".to_owned(), b"new".to_vec());
+        assert_eq!(db.get("expired"), Some(b"new".to_vec()));
+        assert_eq!(db.ttl("expired"), -1);
     }
 
     #[test]
