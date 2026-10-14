@@ -4,7 +4,7 @@ use std::net::{TcpListener, TcpStream};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-// CLI의 접속 주소가 고정되어 있으므로 하나의 테스트 안에서 순차 실행한다.
+// 실제 CLI 프로세스에 요청을 입력하고 TCP 요청·응답 및 히스토리를 검증한다.
 #[test]
 fn cli_requests_responses_and_eof() {
     run_case(
@@ -120,8 +120,8 @@ fn run_case(
         editor.add_history_entry("GET previous").unwrap();
         editor.save_history(&history_path).unwrap();
     }
-    let listener = TcpListener::bind("127.0.0.1:6379")
-        .expect("CLI test requires port 6379 to be free; stop mini-redis first");
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port().to_string();
     listener.set_nonblocking(true).unwrap();
     let server = std::thread::spawn(move || {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -144,6 +144,7 @@ fn run_case(
         respond(socket);
     });
     let mut child = Command::new(env!("CARGO_BIN_EXE_mini-redis-cli"))
+        .args(["-h", "127.0.0.1", "-p", &port])
         .current_dir(&test_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -207,4 +208,29 @@ fn run_case(
         std::fs::remove_file(&history_path).unwrap();
     }
     std::fs::remove_dir(&test_dir).unwrap();
+}
+
+#[test]
+fn rejects_invalid_connection_options() {
+    for (args, message) in [
+        (vec!["-h"], "-h requires a host"),
+        (vec!["-h", ""], "-h requires a valid host"),
+        (vec!["-h", "-p", "6380"], "-h requires a valid host"),
+        (vec!["-p"], "-p requires a port"),
+        (vec!["-p", "0"], "port must be 1..=65535"),
+        (vec!["-p", "65536"], "port must be 1..=65535"),
+        (vec!["-p", "abc"], "port must be 1..=65535"),
+        (vec!["-p", "-1"], "port must be 1..=65535"),
+        (vec!["--unknown"], "unknown option: --unknown"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_mini-redis-cli"))
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("InvalidInput"), "{stderr}");
+        assert!(stderr.contains(message), "{stderr}");
+    }
 }

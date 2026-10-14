@@ -16,10 +16,58 @@ const HISTORY_PATH: &str = ".mini-redis-cli-history"; // 커맨드 히스토리 
 #[tokio::main]
 async fn main() -> io::Result<()> {
     logging::init();
+    // mini-redis-cli -h localhost -p 6379 실행 인자 읽어오기
+    // skip(1)로 첫 항목인 프로그램 경로 제외하기
+    let mut args = std::env::args().skip(1);
 
+    let mut host: String = "127.0.0.1".to_owned();
+    let mut port: u16 = 6379;
+    loop {
+        // 읽어온 실행인자 체크
+        match args.next() {
+            Some(arg) => match arg.as_str() {
+                "-h" => {
+                    host = args.next().ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidInput, "-h requires a host")
+                    })?;
+                    if host.trim().is_empty() || host.starts_with('-') {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "-h requires a valid host",
+                        ));
+                    }
+                }
+                "-p" => {
+                    let value = args.next().ok_or(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "-p requires a port",
+                    ))?;
+                    port = value.parse::<u16>().map_err(|_| {
+                        io::Error::new(io::ErrorKind::InvalidInput, "port must be 1..=65535")
+                    })?;
+
+                    if port == 0 {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "port must be 1..=65535",
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("unknown option: {arg}"),
+                    ));
+                }
+            },
+            None => {
+                break;
+            }
+        };
+    }
     // 서버에 접속해서 소켓 획득
-    let mut socket = TcpStream::connect("127.0.0.1:6379").await?;
-    info!("server connected");
+    let mut socket = TcpStream::connect((host.as_str(), port)).await?;
+    info!(%host, port, "server connected");
 
     // 히스토리를 위한 에디터 생성
     let mut editor = DefaultEditor::new().map_err(|error| io::Error::other(error.to_string()))?;

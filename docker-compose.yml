@@ -14,6 +14,9 @@ services:
     stdin_open: true # 표준입력 열어둠
     tty: true # 가상 터미널 할당
     stop_grace_period: 25s
+    environment:
+      MINI_REDIS_ADDRESS: "0.0.0.0:6379"
+      MINI_REDIS_MAX_CONNECTIONS: "100"
 
   official-redis:
     image: redis:7.4-bookworm # 이미 만들어져 있는 이미지
