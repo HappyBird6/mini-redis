@@ -7,6 +7,27 @@ use std::time::Duration;
 #[test]
 fn cli_requests_responses_and_eof() {
     run_case(
+        "SET name \"unclosed\nSET name \"hello world\"\n\"qUiT\"\nPING\n",
+        |mut socket| {
+            expect_request(
+                &mut socket,
+                b"*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$11\r\nhello world\r\n",
+            );
+            socket.write_all(b"+OK\r\n").unwrap();
+            expect_request(&mut socket, b"*1\r\n$4\r\nqUiT\r\n");
+            socket.write_all(b"+OK\r\n").unwrap();
+            let mut byte = [0];
+            assert_eq!(
+                socket.read(&mut byte).unwrap(),
+                0,
+                "quoted QUIT must stop input"
+            );
+        },
+        true,
+        "OK",
+        Some("invalid quotes"),
+    );
+    run_case(
         "\n \t\nPING\nQUIT\nSET after x\n",
         |mut socket| {
             expect_request(&mut socket, b"*1\r\n$4\r\nPING\r\n");
@@ -140,7 +161,9 @@ fn run_case(
     );
     assert!(stdout.contains(expected_stdout), "stdout: {stdout}");
     if let Some(message) = expected_stderr {
-        assert!(stderr.contains("UnexpectedEof"), "stderr: {stderr}");
+        if !success {
+            assert!(stderr.contains("UnexpectedEof"), "stderr: {stderr}");
+        }
         assert!(stderr.contains(message), "stderr: {stderr}");
     }
 }

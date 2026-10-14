@@ -37,12 +37,23 @@ async fn main() -> io::Result<()> {
         }
 
         // 이제 받은 raw command를 띄워쓰기 단위로 나누고 벌크스트링화 시킨후 array에 담아서 보낸다
-        let parts = command.split_whitespace();
+        // let parts = command.split_whitespace(); -> Set name "hello word" 처럼 따옴표안 공백있는 명령 처리 불가
+        // -> 문자열 순회하면서 따로 계산
+        let args = match parse_args(command) {
+            Ok(args) => args,
+            Err(error) => {
+                // 에러 출력하고 새 입력받음
+                eprintln!("invalid quotes: {error:?}");
+                continue;
+            }
+        };
+
+        // 하단 for arg in args에서 소유권 소비되니까 quit 종료 명령어 미리 판단
+        let is_quit = args.len() == 1 && args[0].eq_ignore_ascii_case("QUIT");
 
         let mut frames: Vec<Frame> = Vec::new();
-        for part in parts {
-            let bytes_vec = part.as_bytes().to_vec();
-            frames.push(Frame::BulkString(bytes_vec));
+        for arg in args {
+            frames.push(Frame::BulkString(arg.into_bytes()));
         }
 
         // 벌크스트링 벡터 넣어서 Frame::Array화
@@ -88,7 +99,7 @@ async fn main() -> io::Result<()> {
                                 Frame::SimpleString(text) => {
                                     println!("{text}");
 
-                                    if command.eq_ignore_ascii_case("QUIT") && text == "OK" {
+                                    if is_quit && text == "OK" {
                                         break 'input;
                                     }
                                 }
@@ -122,4 +133,101 @@ async fn main() -> io::Result<()> {
     }
 
     Ok(())
+}
+fn parse_args(input: &str) -> Result<Vec<String>, InputError> {
+    let mut current = String::new();
+    let mut args = Vec::new();
+    // 따옴표 안 인지
+    let mut in_quotes = false;
+    // 인자 시작인지
+    let mut start = false;
+    for ch in input.chars() {
+        // " 만나면 in_quotes 토글
+        if ch == '"' {
+            in_quotes = !in_quotes;
+            start = true;
+            continue;
+        }
+        // 공백 만남
+        if ch.is_whitespace() && !in_quotes {
+            if start {
+                // args.push(current.clone());
+                // current = String::new();
+                // std::mem::take를 써서 불필요한 복사를 줄임.
+                // 현재 current 문자열 소유권을 넘김과 동시에 current는 빈 문자열을 소유함
+                args.push(std::mem::take(&mut current));
+
+                start = false;
+            }
+            continue;
+        }
+        start = true;
+        current.push(ch);
+    }
+
+    if in_quotes {
+        return Err(InputError::InvalidQuotes);
+    }
+
+    if start {
+        args.push(current);
+    }
+    Ok(args)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InputError {
+    InvalidQuotes,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_args, InputError};
+
+    #[test]
+    fn parses_whitespace_separated_arguments() {
+        assert_eq!(
+            parse_args("  SET\tname   kim  ").unwrap(),
+            ["SET", "name", "kim"]
+        );
+    }
+
+    #[test]
+    fn preserves_spaces_and_unicode_inside_quotes() {
+        assert_eq!(
+            parse_args("SET name \"안녕 world\"").unwrap(),
+            ["SET", "name", "안녕 world"]
+        );
+        assert_eq!(
+            parse_args("SET name \" a\tb \"").unwrap(),
+            ["SET", "name", " a\tb "]
+        );
+    }
+
+    #[test]
+    fn preserves_empty_quoted_arguments() {
+        assert_eq!(parse_args("SET \"\" \"\"").unwrap(), ["SET", "", ""]);
+        assert_eq!(parse_args("\"\"").unwrap(), [""]);
+    }
+
+    #[test]
+    fn empty_input_has_no_arguments() {
+        assert!(parse_args("").unwrap().is_empty());
+        assert!(parse_args(" \t\r\n").unwrap().is_empty());
+    }
+
+    #[test]
+    fn rejects_unclosed_quotes() {
+        for input in ["\"", "SET name \"hello", "SET name hello\""] {
+            assert_eq!(parse_args(input), Err(InputError::InvalidQuotes));
+        }
+    }
+
+    #[test]
+    fn joins_quoted_and_unquoted_parts_of_one_argument() {
+        assert_eq!(
+            parse_args("SET name pre\"hello world\"post").unwrap(),
+            ["SET", "name", "prehello worldpost"]
+        );
+    }
 }
