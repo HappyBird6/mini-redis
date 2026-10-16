@@ -8,14 +8,15 @@ use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
+use crate::config::ServerConfig;
 use crate::{connection, db::Db};
 
 const REJECTION_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const SERVER_WAITING_TIMEOUT: Duration = Duration::from_secs(20); // 서버 종료 시 기존 연결 기다리는 시간
-const MAXIMUM_CONNECTIONS: usize = 100;
 
-pub async fn run(address: &str) -> io::Result<()> {
-    let listener = TcpListener::bind(address).await?;
+pub async fn run(server_config: ServerConfig) -> io::Result<()> {
+    let address = server_config.address;
+    let listener = TcpListener::bind(&address).await?;
     info!(%address, "server listening");
     // 클라이언트 모두 같은 DB
     let db = Db::default();
@@ -24,7 +25,7 @@ pub async fn run(address: &str) -> io::Result<()> {
     let mut connections: JoinSet<()> = JoinSet::new();
 
     // 연결 수 제한. Semaphore는 동시에 작업할 수 있는 수 제한하는 도구
-    let semaphore = Arc::new(Semaphore::new(MAXIMUM_CONNECTIONS));
+    let semaphore = Arc::new(Semaphore::new(server_config.max_connections));
 
     // watch 채널 생성 -> 종료 신호 전달하기 위함 (Sender, Receiver), false는 안닫혔다는 의미, 인자로 bool 받음
     let (shutdown_sender, shutdown_receiver) = watch::channel(false);
@@ -48,7 +49,7 @@ pub async fn run(address: &str) -> io::Result<()> {
                 };
 
                 let outcome = match accept_connection(
-                    socket, peer, &semaphore, &mut connections, &db, &shutdown_receiver,
+                    socket, peer, &semaphore, &mut connections, &db, &shutdown_receiver,server_config.max_connections
                 ).await {
                     Ok(outcome) => outcome,
                     Err(error) => break Err(error),
@@ -122,12 +123,13 @@ async fn accept_connection(
     connections: &mut JoinSet<()>,
     db: &Db,
     shutdown: &watch::Receiver<bool>,
+    max_connections: usize,
 ) -> io::Result<AcceptOutcome> {
     // 퍼밋 받아옴
     let permit = match Arc::clone(semaphore).try_acquire_owned() {
         Ok(permit) => permit,
         Err(_) => {
-            warn!(%peer, limit = MAXIMUM_CONNECTIONS, "connection limit reached");
+            warn!(%peer, limit = max_connections, "connection limit reached");
             return reject_connection(&mut socket, shutdown_signal()).await;
         }
     };
@@ -267,11 +269,13 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_excess_connection_and_reuses_permit_after_shutdown() {
-        let semaphore = Arc::new(Semaphore::new(1));
+        let max_connections = 1;
+        let semaphore = Arc::new(Semaphore::new(max_connections));
         let mut connections = JoinSet::new();
         let db = Db::default();
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (mut client, socket, peer) = socket_pair().await;
+
         assert!(matches!(
             accept_connection(
                 socket,
@@ -279,7 +283,8 @@ mod tests {
                 &semaphore,
                 &mut connections,
                 &db,
-                &shutdown_rx
+                &shutdown_rx,
+                max_connections,
             )
             .await
             .unwrap(),
@@ -302,7 +307,8 @@ mod tests {
                 &semaphore,
                 &mut connections,
                 &db,
-                &shutdown_rx
+                &shutdown_rx,
+                max_connections,
             )
             .await
             .unwrap(),
@@ -340,6 +346,7 @@ mod tests {
             &mut connections,
             &db,
             &shutdown_rx,
+            max_connections,
         )
         .await
         .unwrap();

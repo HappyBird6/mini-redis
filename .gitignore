@@ -3,3 +3,4 @@
 .vscode/
 *.log
 .DS_Store
+.mini-redis-cli-history
