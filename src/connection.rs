@@ -88,12 +88,13 @@ pub async fn handle(
         }
         // 펜딩에 읽은 버퍼 데이터 붙임
         pending.extend_from_slice(&buffer[..bytes_read]);
+
+        let mut offset: usize = 0;
         loop {
-            match resp::parse(&pending) {
+            match resp::parse(&pending[offset..]) {
                 Ok(Some((frame, consumed))) => {
-                    // 쓴 데이터 길이만큼 펜딩에서 제거
-                    // TODO : 이후 처리량 많아지면 오프셋으로 처리한뒤 한번에 제거
-                    pending.drain(..consumed);
+                    // 처리한 바이트 수를 누적
+                    offset += consumed;
 
                     /*
                     frame을 command로 변경후 execute 함수로 넘기고 응답 frame 받아옴
@@ -144,6 +145,7 @@ pub async fn handle(
                 }
             }
         }
+        pending.drain(..offset);
     }
 }
 
@@ -241,6 +243,47 @@ mod tests {
             .await
             .expect("connection did not close")
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn preserves_partial_frame_after_processed_pipeline() {
+        let db = Db::default();
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (mut client, server) = start_connection(db.clone(), shutdown_rx).await;
+
+        // 완성된 두 요청 뒤에 SET의 일부를 붙여 보낸다.
+        client
+            .write_all(
+                concat!(
+                    "*1\r\n$4\r\nPING\r\n",
+                    "*1\r\n$4\r\nPING\r\n",
+                    "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$3\r\nki",
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut response = [0; 14];
+        timeout(Duration::from_secs(2), client.read_exact(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&response, b"+PONG\r\n+PONG\r\n");
+
+        // 앞부분 제거 후 남은 미완성 프레임이 다음 수신과 결합되어야 한다.
+        client
+            .write_all(
+                concat!(
+                    "m\r\n",
+                    "*2\r\n$3\r\nGET\r\n$4\r\nname\r\n",
+                    "*1\r\n$4\r\nQUIT\r\n",
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        expect_closed(&mut client, server, b"+OK\r\n$3\r\nkim\r\n+OK\r\n").await;
+        assert_eq!(db.get("name"), Some(b"kim".to_vec()));
     }
 
     // 실제 TCP 연결로 핸들러를 실행한다.
