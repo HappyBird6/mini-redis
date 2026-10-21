@@ -25,6 +25,8 @@ pub async fn handle(
     mut shutdown: watch::Receiver<bool>,
 ) -> io::Result<()> {
     info!("client connected");
+    
+    socket.set_nodelay(true)?;
 
     let mut buffer = [0_u8; 4096];
     let mut pending: Vec<u8> = Vec::new();
