@@ -1,0 +1,2149 @@
+
+=== Benchmark session 20261021T064304Z-2162 ===
+Time: 2026-10-21T15:43:04+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Command: PING
+Measured requests per run: 100000
+Warmup requests per run: 10000
+Warmup: 1 per condition
+Measured runs: 3 per condition
+Conditions (clients pipeline): 1 1 10 1 50 1 10 16 50 16 10 64 10 256 50 256 100 1 100 16 100 256
+Target: stop server, build release, recreate server, then benchmark
+Commit is the working checkout; uncommitted source changes are included in the build.
+
+Working tree at session start:
+ M docs/optimization-log.md
+?? docs/benchmarks/raw/20261021T064304Z-2162-15510a3.txt
+
+Uncommitted tracked changes:
+
+Docker version:
+29.6.2
+
+Docker VM resources (CPUs / bytes of memory):
+28 / 16597581824
+
+Stop existing server (active connections will close):
+ Container mini-redis-mini-redis-1 Stopping 
+ Container mini-redis-mini-redis-1 Stopped 
+
+Build release binary:
+ Container mini-redis-mini-redis-run-41311fdfbca8 Creating 
+ Container mini-redis-mini-redis-run-41311fdfbca8 Created 
+   Compiling mini-redis v0.1.0 (/app)
+    Finished `release` profile [optimized] target(s) in 1.32s
+
+Recreate release server:
+ Container mini-redis-mini-redis-1 Recreate 
+ Container mini-redis-mini-redis-1 Recreated 
+ Container mini-redis-mini-redis-1 Starting 
+ Container mini-redis-mini-redis-1 Started 
+
+Start benchmark tools container:
+ Container mini-redis-official-redis-1 Starting 
+ Container mini-redis-official-redis-1 Started 
+
+Actual server command: /app/target/release/mini-redis 
+
+Server state:
+Running=true StartedAt=2026-10-21T06:43:08.691742864Z Image=sha256:ad279ac793b3bbc712814f136f4a1e190f750034795d0731b0948d70c546e03b
+
+Container resource limits (0 means no explicit limit):
+NanoCpus=0 CpuQuota=0 CpuPeriod=0 CpusetCpus= Memory=0 MemorySwap=0
+
+Runtime server settings:
+MINI_REDIS_ADDRESS=0.0.0.0:6379
+MINI_REDIS_MAX_CONNECTIONS=100
+RUST_LOG=<unset>
+
+Logging configuration source (checkout, not embedded binary metadata):
+use tracing::Level;
+
+pub fn init() {
+    /*
+    DEBUG 레벨 이상의 로그를 출력
+     */
+    tracing_subscriber::fmt()
+        .with_max_level(Level::DEBUG)
+        .init();
+}
+
+Rust toolchain available in container (not proof of build version):
+rustc 1.94.0 (4a4ef493e 2026-03-02)
+
+Benchmark tool version:
+redis-benchmark 7.4.11
+
+Readiness response: PONG
+
+=== Session 20261021T064304Z-2162 / c=1 P=1 / Run warmup ===
+Time: 2026-10-21T15:43:11+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=10000 clients=1 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 10000 -c 1 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  10000 requests completed in 0.73 seconds
+  1 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.031 milliseconds (cumulative count 7)
+50.000% <= 0.055 milliseconds (cumulative count 5356)
+75.000% <= 0.079 milliseconds (cumulative count 7526)
+87.500% <= 0.119 milliseconds (cumulative count 8940)
+93.750% <= 0.135 milliseconds (cumulative count 9412)
+96.875% <= 0.151 milliseconds (cumulative count 9707)
+98.438% <= 0.167 milliseconds (cumulative count 9858)
+99.219% <= 0.183 milliseconds (cumulative count 9931)
+99.609% <= 0.207 milliseconds (cumulative count 9966)
+99.805% <= 0.247 milliseconds (cumulative count 9984)
+99.902% <= 0.263 milliseconds (cumulative count 9991)
+99.951% <= 0.287 milliseconds (cumulative count 9996)
+99.976% <= 0.327 milliseconds (cumulative count 9998)
+99.988% <= 0.351 milliseconds (cumulative count 9999)
+99.994% <= 0.367 milliseconds (cumulative count 10000)
+100.000% <= 0.367 milliseconds (cumulative count 10000)
+Cumulative distribution of latencies:
+84.400% <= 0.103 milliseconds (cumulative count 8440)
+99.660% <= 0.207 milliseconds (cumulative count 9966)
+99.970% <= 0.303 milliseconds (cumulative count 9997)
+100.000% <= 0.407 milliseconds (cumulative count 10000)
+Summary:
+  throughput summary: 13717.42 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.068     0.024     0.055     0.143     0.175     0.367
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=1 P=1 / Run 1 ===
+Time: 2026-10-21T15:43:12+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=1 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 1 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 4.89 seconds
+  1 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.023 milliseconds (cumulative count 12)
+50.000% <= 0.047 milliseconds (cumulative count 74669)
+75.000% <= 0.055 milliseconds (cumulative count 85223)
+87.500% <= 0.063 milliseconds (cumulative count 90485)
+93.750% <= 0.079 milliseconds (cumulative count 95057)
+96.875% <= 0.095 milliseconds (cumulative count 97109)
+98.438% <= 0.119 milliseconds (cumulative count 98643)
+99.219% <= 0.135 milliseconds (cumulative count 99230)
+99.609% <= 0.159 milliseconds (cumulative count 99700)
+99.805% <= 0.175 milliseconds (cumulative count 99815)
+99.902% <= 0.207 milliseconds (cumulative count 99918)
+99.951% <= 0.231 milliseconds (cumulative count 99961)
+99.976% <= 0.255 milliseconds (cumulative count 99979)
+99.988% <= 0.271 milliseconds (cumulative count 99988)
+99.994% <= 0.311 milliseconds (cumulative count 99994)
+99.997% <= 0.367 milliseconds (cumulative count 99997)
+99.998% <= 0.391 milliseconds (cumulative count 99999)
+99.999% <= 0.687 milliseconds (cumulative count 100000)
+100.000% <= 0.687 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+97.729% <= 0.103 milliseconds (cumulative count 97729)
+99.918% <= 0.207 milliseconds (cumulative count 99918)
+99.993% <= 0.303 milliseconds (cumulative count 99993)
+99.999% <= 0.407 milliseconds (cumulative count 99999)
+100.000% <= 0.703 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 20445.72 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.046     0.016     0.047     0.079     0.135     0.687
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=1 P=1 / Run 2 ===
+Time: 2026-10-21T15:43:18+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=1 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 1 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 4.37 seconds
+  1 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.023 milliseconds (cumulative count 8)
+50.000% <= 0.039 milliseconds (cumulative count 66356)
+75.000% <= 0.047 milliseconds (cumulative count 85141)
+87.500% <= 0.055 milliseconds (cumulative count 91531)
+93.750% <= 0.063 milliseconds (cumulative count 94503)
+96.875% <= 0.079 milliseconds (cumulative count 97473)
+98.438% <= 0.095 milliseconds (cumulative count 98599)
+99.219% <= 0.119 milliseconds (cumulative count 99328)
+99.609% <= 0.143 milliseconds (cumulative count 99684)
+99.805% <= 0.167 milliseconds (cumulative count 99827)
+99.902% <= 0.191 milliseconds (cumulative count 99904)
+99.951% <= 0.223 milliseconds (cumulative count 99956)
+99.976% <= 0.239 milliseconds (cumulative count 99976)
+99.988% <= 0.271 milliseconds (cumulative count 99989)
+99.994% <= 0.303 milliseconds (cumulative count 99995)
+99.997% <= 0.319 milliseconds (cumulative count 99997)
+99.998% <= 0.503 milliseconds (cumulative count 99999)
+99.999% <= 0.863 milliseconds (cumulative count 100000)
+100.000% <= 0.863 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+98.892% <= 0.103 milliseconds (cumulative count 98892)
+99.936% <= 0.207 milliseconds (cumulative count 99936)
+99.995% <= 0.303 milliseconds (cumulative count 99995)
+99.997% <= 0.407 milliseconds (cumulative count 99997)
+99.999% <= 0.503 milliseconds (cumulative count 99999)
+100.000% <= 0.903 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 22867.60 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.042     0.016     0.039     0.071     0.111     0.863
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=1 P=1 / Run 3 ===
+Time: 2026-10-21T15:43:23+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=1 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 1 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 6.12 seconds
+  1 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.023 milliseconds (cumulative count 9)
+50.000% <= 0.047 milliseconds (cumulative count 54493)
+75.000% <= 0.063 milliseconds (cumulative count 76068)
+87.500% <= 0.095 milliseconds (cumulative count 89266)
+93.750% <= 0.119 milliseconds (cumulative count 93963)
+96.875% <= 0.143 milliseconds (cumulative count 97487)
+98.438% <= 0.159 milliseconds (cumulative count 98812)
+99.219% <= 0.175 milliseconds (cumulative count 99418)
+99.609% <= 0.191 milliseconds (cumulative count 99668)
+99.805% <= 0.215 milliseconds (cumulative count 99823)
+99.902% <= 0.247 milliseconds (cumulative count 99911)
+99.951% <= 0.287 milliseconds (cumulative count 99955)
+99.976% <= 0.327 milliseconds (cumulative count 99977)
+99.988% <= 0.367 milliseconds (cumulative count 99987)
+99.994% <= 0.455 milliseconds (cumulative count 99993)
+99.997% <= 0.559 milliseconds (cumulative count 99996)
+99.998% <= 0.895 milliseconds (cumulative count 99998)
+99.999% <= 1.239 milliseconds (cumulative count 99999)
+100.000% <= 1.239 milliseconds (cumulative count 99999)
+Cumulative distribution of latencies:
+91.005% <= 0.103 milliseconds (cumulative count 91004)
+99.785% <= 0.207 milliseconds (cumulative count 99784)
+99.966% <= 0.303 milliseconds (cumulative count 99965)
+99.992% <= 0.407 milliseconds (cumulative count 99991)
+99.996% <= 0.503 milliseconds (cumulative count 99995)
+99.997% <= 0.607 milliseconds (cumulative count 99996)
+99.998% <= 0.703 milliseconds (cumulative count 99997)
+99.999% <= 0.903 milliseconds (cumulative count 99998)
+100.000% <= 1.303 milliseconds (cumulative count 99999)
+Summary:
+  throughput summary: 16342.54 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.058     0.016     0.047     0.127     0.167     1.239
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=1 / Run warmup ===
+Time: 2026-10-21T15:43:29+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=10000 clients=10 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 10000 -c 10 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  10000 requests completed in 0.08 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.015 milliseconds (cumulative count 1)
+50.000% <= 0.047 milliseconds (cumulative count 5352)
+75.000% <= 0.063 milliseconds (cumulative count 8571)
+87.500% <= 0.071 milliseconds (cumulative count 9190)
+93.750% <= 0.079 milliseconds (cumulative count 9568)
+96.875% <= 0.087 milliseconds (cumulative count 9716)
+98.438% <= 0.103 milliseconds (cumulative count 9845)
+99.219% <= 0.143 milliseconds (cumulative count 9935)
+99.609% <= 0.175 milliseconds (cumulative count 9962)
+99.805% <= 0.239 milliseconds (cumulative count 9981)
+99.902% <= 0.375 milliseconds (cumulative count 9992)
+99.951% <= 0.423 milliseconds (cumulative count 9996)
+99.976% <= 0.455 milliseconds (cumulative count 10000)
+100.000% <= 0.455 milliseconds (cumulative count 10000)
+Cumulative distribution of latencies:
+98.450% <= 0.103 milliseconds (cumulative count 9845)
+99.780% <= 0.207 milliseconds (cumulative count 9978)
+99.850% <= 0.303 milliseconds (cumulative count 9985)
+99.950% <= 0.407 milliseconds (cumulative count 9995)
+100.000% <= 0.503 milliseconds (cumulative count 10000)
+Summary:
+  throughput summary: 128205.12 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.051     0.008     0.047     0.079     0.127     0.455
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=1 / Run 1 ===
+Time: 2026-10-21T15:43:30+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=10 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 10 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.79 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.015 milliseconds (cumulative count 10)
+50.000% <= 0.055 milliseconds (cumulative count 70950)
+75.000% <= 0.063 milliseconds (cumulative count 83899)
+87.500% <= 0.071 milliseconds (cumulative count 91016)
+93.750% <= 0.079 milliseconds (cumulative count 94986)
+96.875% <= 0.087 milliseconds (cumulative count 96966)
+98.438% <= 0.103 milliseconds (cumulative count 98479)
+99.219% <= 0.127 milliseconds (cumulative count 99274)
+99.609% <= 0.159 milliseconds (cumulative count 99629)
+99.805% <= 0.207 milliseconds (cumulative count 99810)
+99.902% <= 0.263 milliseconds (cumulative count 99903)
+99.951% <= 0.319 milliseconds (cumulative count 99954)
+99.976% <= 0.415 milliseconds (cumulative count 99977)
+99.988% <= 0.471 milliseconds (cumulative count 99991)
+99.994% <= 0.511 milliseconds (cumulative count 99994)
+99.997% <= 0.583 milliseconds (cumulative count 99997)
+99.998% <= 0.599 milliseconds (cumulative count 100000)
+100.000% <= 0.599 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+98.479% <= 0.103 milliseconds (cumulative count 98479)
+99.810% <= 0.207 milliseconds (cumulative count 99810)
+99.940% <= 0.303 milliseconds (cumulative count 99940)
+99.975% <= 0.407 milliseconds (cumulative count 99975)
+99.993% <= 0.503 milliseconds (cumulative count 99993)
+100.000% <= 0.607 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 126903.55 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.052     0.008     0.055     0.087     0.119     0.599
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=1 / Run 2 ===
+Time: 2026-10-21T15:43:31+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=10 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 10 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.82 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.015 milliseconds (cumulative count 10)
+50.000% <= 0.055 milliseconds (cumulative count 65066)
+75.000% <= 0.063 milliseconds (cumulative count 79699)
+87.500% <= 0.071 milliseconds (cumulative count 88449)
+93.750% <= 0.087 milliseconds (cumulative count 96176)
+96.875% <= 0.095 milliseconds (cumulative count 97467)
+98.438% <= 0.111 milliseconds (cumulative count 98503)
+99.219% <= 0.143 milliseconds (cumulative count 99333)
+99.609% <= 0.167 milliseconds (cumulative count 99613)
+99.805% <= 0.215 milliseconds (cumulative count 99825)
+99.902% <= 0.247 milliseconds (cumulative count 99916)
+99.951% <= 0.279 milliseconds (cumulative count 99955)
+99.976% <= 0.327 milliseconds (cumulative count 99977)
+99.988% <= 0.351 milliseconds (cumulative count 99988)
+99.994% <= 0.407 milliseconds (cumulative count 99994)
+99.997% <= 0.559 milliseconds (cumulative count 99999)
+99.999% <= 0.583 milliseconds (cumulative count 100000)
+100.000% <= 0.583 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+98.087% <= 0.103 milliseconds (cumulative count 98087)
+99.792% <= 0.207 milliseconds (cumulative count 99792)
+99.967% <= 0.303 milliseconds (cumulative count 99967)
+99.994% <= 0.407 milliseconds (cumulative count 99994)
+99.995% <= 0.503 milliseconds (cumulative count 99995)
+100.000% <= 0.607 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 122100.12 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.054     0.008     0.055     0.087     0.127     0.583
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=1 / Run 3 ===
+Time: 2026-10-21T15:43:32+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=10 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 10 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.82 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.015 milliseconds (cumulative count 14)
+50.000% <= 0.055 milliseconds (cumulative count 66626)
+75.000% <= 0.063 milliseconds (cumulative count 80234)
+87.500% <= 0.071 milliseconds (cumulative count 88103)
+93.750% <= 0.087 milliseconds (cumulative count 95270)
+96.875% <= 0.103 milliseconds (cumulative count 97412)
+98.438% <= 0.127 milliseconds (cumulative count 98655)
+99.219% <= 0.151 milliseconds (cumulative count 99259)
+99.609% <= 0.183 milliseconds (cumulative count 99628)
+99.805% <= 0.223 milliseconds (cumulative count 99812)
+99.902% <= 0.271 milliseconds (cumulative count 99904)
+99.951% <= 0.327 milliseconds (cumulative count 99952)
+99.976% <= 0.407 milliseconds (cumulative count 99976)
+99.988% <= 0.599 milliseconds (cumulative count 99991)
+99.994% <= 0.631 milliseconds (cumulative count 99994)
+99.997% <= 1.143 milliseconds (cumulative count 99997)
+99.998% <= 1.159 milliseconds (cumulative count 99999)
+99.999% <= 1.175 milliseconds (cumulative count 100000)
+100.000% <= 1.175 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+97.412% <= 0.103 milliseconds (cumulative count 97412)
+99.759% <= 0.207 milliseconds (cumulative count 99759)
+99.934% <= 0.303 milliseconds (cumulative count 99934)
+99.976% <= 0.407 milliseconds (cumulative count 99976)
+99.985% <= 0.503 milliseconds (cumulative count 99985)
+99.992% <= 0.607 milliseconds (cumulative count 99992)
+99.995% <= 0.703 milliseconds (cumulative count 99995)
+100.000% <= 1.207 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 122249.38 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.054     0.008     0.055     0.087     0.143     1.175
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=50 P=1 / Run warmup ===
+Time: 2026-10-21T15:43:33+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=10000 clients=50 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 10000 -c 50 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  10000 requests completed in 0.08 seconds
+  50 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.055 milliseconds (cumulative count 2)
+50.000% <= 0.207 milliseconds (cumulative count 5166)
+75.000% <= 0.231 milliseconds (cumulative count 7897)
+87.500% <= 0.247 milliseconds (cumulative count 8866)
+93.750% <= 0.271 milliseconds (cumulative count 9463)
+96.875% <= 0.295 milliseconds (cumulative count 9710)
+98.438% <= 0.335 milliseconds (cumulative count 9852)
+99.219% <= 0.391 milliseconds (cumulative count 9925)
+99.609% <= 0.655 milliseconds (cumulative count 9961)
+99.805% <= 0.719 milliseconds (cumulative count 9986)
+99.902% <= 0.735 milliseconds (cumulative count 9994)
+99.951% <= 0.743 milliseconds (cumulative count 9997)
+99.976% <= 0.759 milliseconds (cumulative count 10000)
+100.000% <= 0.759 milliseconds (cumulative count 10000)
+Cumulative distribution of latencies:
+0.100% <= 0.103 milliseconds (cumulative count 10)
+51.660% <= 0.207 milliseconds (cumulative count 5166)
+97.420% <= 0.303 milliseconds (cumulative count 9742)
+99.320% <= 0.407 milliseconds (cumulative count 9932)
+99.450% <= 0.503 milliseconds (cumulative count 9945)
+99.550% <= 0.607 milliseconds (cumulative count 9955)
+99.730% <= 0.703 milliseconds (cumulative count 9973)
+100.000% <= 0.807 milliseconds (cumulative count 10000)
+Summary:
+  throughput summary: 125000.00 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.214     0.048     0.207     0.279     0.367     0.759
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=50 P=1 / Run 1 ===
+Time: 2026-10-21T15:43:34+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=50 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 50 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.78 seconds
+  50 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.047 milliseconds (cumulative count 1)
+50.000% <= 0.207 milliseconds (cumulative count 55528)
+75.000% <= 0.223 milliseconds (cumulative count 75643)
+87.500% <= 0.247 milliseconds (cumulative count 90962)
+93.750% <= 0.263 milliseconds (cumulative count 94999)
+96.875% <= 0.279 milliseconds (cumulative count 96984)
+98.438% <= 0.311 milliseconds (cumulative count 98561)
+99.219% <= 0.351 milliseconds (cumulative count 99286)
+99.609% <= 0.391 milliseconds (cumulative count 99621)
+99.805% <= 0.479 milliseconds (cumulative count 99815)
+99.902% <= 0.543 milliseconds (cumulative count 99904)
+99.951% <= 0.599 milliseconds (cumulative count 99964)
+99.976% <= 0.615 milliseconds (cumulative count 99982)
+99.988% <= 0.631 milliseconds (cumulative count 99991)
+99.994% <= 0.647 milliseconds (cumulative count 99995)
+99.997% <= 0.663 milliseconds (cumulative count 99997)
+99.998% <= 0.679 milliseconds (cumulative count 99999)
+99.999% <= 0.687 milliseconds (cumulative count 100000)
+100.000% <= 0.687 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.044% <= 0.103 milliseconds (cumulative count 44)
+55.528% <= 0.207 milliseconds (cumulative count 55528)
+98.334% <= 0.303 milliseconds (cumulative count 98334)
+99.692% <= 0.407 milliseconds (cumulative count 99692)
+99.865% <= 0.503 milliseconds (cumulative count 99865)
+99.975% <= 0.607 milliseconds (cumulative count 99975)
+100.000% <= 0.703 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 127713.92 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.209     0.040     0.207     0.271     0.335     0.687
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=50 P=1 / Run 2 ===
+Time: 2026-10-21T15:43:35+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=50 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 50 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.84 seconds
+  50 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.071 milliseconds (cumulative count 1)
+50.000% <= 0.215 milliseconds (cumulative count 52997)
+75.000% <= 0.239 milliseconds (cumulative count 78705)
+87.500% <= 0.263 milliseconds (cumulative count 90088)
+93.750% <= 0.287 milliseconds (cumulative count 94148)
+96.875% <= 0.351 milliseconds (cumulative count 96909)
+98.438% <= 0.407 milliseconds (cumulative count 98554)
+99.219% <= 0.439 milliseconds (cumulative count 99226)
+99.609% <= 0.471 milliseconds (cumulative count 99658)
+99.805% <= 0.495 milliseconds (cumulative count 99830)
+99.902% <= 0.519 milliseconds (cumulative count 99903)
+99.951% <= 0.583 milliseconds (cumulative count 99955)
+99.976% <= 0.655 milliseconds (cumulative count 99976)
+99.988% <= 0.751 milliseconds (cumulative count 99988)
+99.994% <= 0.847 milliseconds (cumulative count 99994)
+99.997% <= 0.999 milliseconds (cumulative count 99997)
+99.998% <= 1.087 milliseconds (cumulative count 99999)
+99.999% <= 1.135 milliseconds (cumulative count 100000)
+100.000% <= 1.135 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.021% <= 0.103 milliseconds (cumulative count 21)
+41.724% <= 0.207 milliseconds (cumulative count 41724)
+95.271% <= 0.303 milliseconds (cumulative count 95271)
+98.554% <= 0.407 milliseconds (cumulative count 98554)
+99.863% <= 0.503 milliseconds (cumulative count 99863)
+99.963% <= 0.607 milliseconds (cumulative count 99963)
+99.982% <= 0.703 milliseconds (cumulative count 99982)
+99.992% <= 0.807 milliseconds (cumulative count 99992)
+99.995% <= 0.903 milliseconds (cumulative count 99995)
+99.997% <= 1.007 milliseconds (cumulative count 99997)
+99.999% <= 1.103 milliseconds (cumulative count 99999)
+100.000% <= 1.207 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 119617.22 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.223     0.064     0.215     0.303     0.431     1.135
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=50 P=1 / Run 3 ===
+Time: 2026-10-21T15:43:37+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=50 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 50 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.77 seconds
+  50 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.047 milliseconds (cumulative count 2)
+50.000% <= 0.207 milliseconds (cumulative count 58800)
+75.000% <= 0.223 milliseconds (cumulative count 77104)
+87.500% <= 0.239 milliseconds (cumulative count 87670)
+93.750% <= 0.263 milliseconds (cumulative count 94804)
+96.875% <= 0.287 milliseconds (cumulative count 97465)
+98.438% <= 0.311 milliseconds (cumulative count 98604)
+99.219% <= 0.343 milliseconds (cumulative count 99314)
+99.609% <= 0.375 milliseconds (cumulative count 99618)
+99.805% <= 0.423 milliseconds (cumulative count 99810)
+99.902% <= 0.479 milliseconds (cumulative count 99907)
+99.951% <= 0.519 milliseconds (cumulative count 99956)
+99.976% <= 0.583 milliseconds (cumulative count 99976)
+99.988% <= 0.655 milliseconds (cumulative count 99991)
+99.994% <= 0.679 milliseconds (cumulative count 99995)
+99.997% <= 0.695 milliseconds (cumulative count 99998)
+99.998% <= 0.719 milliseconds (cumulative count 99999)
+99.999% <= 0.847 milliseconds (cumulative count 100000)
+100.000% <= 0.847 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.059% <= 0.103 milliseconds (cumulative count 59)
+58.800% <= 0.207 milliseconds (cumulative count 58800)
+98.287% <= 0.303 milliseconds (cumulative count 98287)
+99.763% <= 0.407 milliseconds (cumulative count 99763)
+99.942% <= 0.503 milliseconds (cumulative count 99942)
+99.980% <= 0.607 milliseconds (cumulative count 99980)
+99.998% <= 0.703 milliseconds (cumulative count 99998)
+99.999% <= 0.807 milliseconds (cumulative count 99999)
+100.000% <= 0.903 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 129032.27 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.207     0.040     0.207     0.271     0.327     0.847
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=16 / Run warmup ===
+Time: 2026-10-21T15:43:38+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=10000 clients=10 pipeline=16
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 10000 -c 10 -P 16 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  10000 requests completed in 0.02 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.039 milliseconds (cumulative count 128)
+50.000% <= 0.119 milliseconds (cumulative count 5312)
+75.000% <= 0.175 milliseconds (cumulative count 7504)
+87.500% <= 0.231 milliseconds (cumulative count 8768)
+93.750% <= 0.279 milliseconds (cumulative count 9408)
+96.875% <= 0.311 milliseconds (cumulative count 9696)
+98.438% <= 0.335 milliseconds (cumulative count 9872)
+99.219% <= 0.359 milliseconds (cumulative count 9936)
+99.609% <= 0.375 milliseconds (cumulative count 9968)
+99.805% <= 0.391 milliseconds (cumulative count 10000)
+100.000% <= 0.391 milliseconds (cumulative count 10000)
+Cumulative distribution of latencies:
+41.280% <= 0.103 milliseconds (cumulative count 4128)
+82.720% <= 0.207 milliseconds (cumulative count 8272)
+96.480% <= 0.303 milliseconds (cumulative count 9648)
+100.000% <= 0.407 milliseconds (cumulative count 10000)
+Summary:
+  throughput summary: 625000.00 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.139     0.032     0.119     0.287     0.351     0.391
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=16 / Run 1 ===
+Time: 2026-10-21T15:43:38+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=10 pipeline=16
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 10 -P 16 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.16 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.031 milliseconds (cumulative count 64)
+50.000% <= 0.127 milliseconds (cumulative count 53120)
+75.000% <= 0.175 milliseconds (cumulative count 77680)
+87.500% <= 0.215 milliseconds (cumulative count 89040)
+93.750% <= 0.247 milliseconds (cumulative count 94112)
+96.875% <= 0.279 milliseconds (cumulative count 96944)
+98.438% <= 0.319 milliseconds (cumulative count 98496)
+99.219% <= 0.367 milliseconds (cumulative count 99248)
+99.609% <= 0.423 milliseconds (cumulative count 99648)
+99.805% <= 0.479 milliseconds (cumulative count 99824)
+99.902% <= 0.495 milliseconds (cumulative count 99904)
+99.951% <= 0.543 milliseconds (cumulative count 99952)
+99.976% <= 0.703 milliseconds (cumulative count 99984)
+99.988% <= 0.727 milliseconds (cumulative count 100000)
+100.000% <= 0.727 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+34.864% <= 0.103 milliseconds (cumulative count 34864)
+87.232% <= 0.207 milliseconds (cumulative count 87232)
+98.096% <= 0.303 milliseconds (cumulative count 98096)
+99.552% <= 0.407 milliseconds (cumulative count 99552)
+99.920% <= 0.503 milliseconds (cumulative count 99920)
+99.968% <= 0.607 milliseconds (cumulative count 99968)
+99.984% <= 0.703 milliseconds (cumulative count 99984)
+100.000% <= 0.807 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 617283.94 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.138     0.024     0.127     0.263     0.343     0.727
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=16 / Run 2 ===
+Time: 2026-10-21T15:43:39+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=10 pipeline=16
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 10 -P 16 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.14 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.031 milliseconds (cumulative count 240)
+50.000% <= 0.111 milliseconds (cumulative count 55872)
+75.000% <= 0.151 milliseconds (cumulative count 77904)
+87.500% <= 0.183 milliseconds (cumulative count 87904)
+93.750% <= 0.215 milliseconds (cumulative count 94064)
+96.875% <= 0.255 milliseconds (cumulative count 97088)
+98.438% <= 0.295 milliseconds (cumulative count 98576)
+99.219% <= 0.335 milliseconds (cumulative count 99280)
+99.609% <= 0.375 milliseconds (cumulative count 99632)
+99.805% <= 0.543 milliseconds (cumulative count 99808)
+99.902% <= 0.575 milliseconds (cumulative count 99904)
+99.951% <= 0.599 milliseconds (cumulative count 99968)
+99.976% <= 0.623 milliseconds (cumulative count 99984)
+99.988% <= 0.655 milliseconds (cumulative count 100000)
+100.000% <= 0.655 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+49.360% <= 0.103 milliseconds (cumulative count 49360)
+92.880% <= 0.207 milliseconds (cumulative count 92880)
+98.720% <= 0.303 milliseconds (cumulative count 98720)
+99.712% <= 0.407 milliseconds (cumulative count 99712)
+99.792% <= 0.503 milliseconds (cumulative count 99792)
+99.968% <= 0.607 milliseconds (cumulative count 99968)
+100.000% <= 0.703 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 719424.44 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.119     0.024     0.111     0.223     0.319     0.655
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=16 / Run 3 ===
+Time: 2026-10-21T15:43:39+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=10 pipeline=16
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 10 -P 16 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.14 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.023 milliseconds (cumulative count 32)
+50.000% <= 0.103 milliseconds (cumulative count 50304)
+75.000% <= 0.151 milliseconds (cumulative count 78080)
+87.500% <= 0.183 milliseconds (cumulative count 87920)
+93.750% <= 0.215 milliseconds (cumulative count 94496)
+96.875% <= 0.239 milliseconds (cumulative count 97136)
+98.438% <= 0.271 milliseconds (cumulative count 98704)
+99.219% <= 0.303 milliseconds (cumulative count 99376)
+99.609% <= 0.343 milliseconds (cumulative count 99616)
+99.805% <= 0.423 milliseconds (cumulative count 99808)
+99.902% <= 0.551 milliseconds (cumulative count 99904)
+99.951% <= 0.639 milliseconds (cumulative count 99952)
+99.976% <= 0.743 milliseconds (cumulative count 99984)
+99.988% <= 0.751 milliseconds (cumulative count 100000)
+100.000% <= 0.751 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+50.304% <= 0.103 milliseconds (cumulative count 50304)
+93.168% <= 0.207 milliseconds (cumulative count 93168)
+99.376% <= 0.303 milliseconds (cumulative count 99376)
+99.776% <= 0.407 milliseconds (cumulative count 99776)
+99.840% <= 0.503 milliseconds (cumulative count 99840)
+99.920% <= 0.607 milliseconds (cumulative count 99920)
+99.968% <= 0.703 milliseconds (cumulative count 99968)
+100.000% <= 0.807 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 729927.06 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.117     0.016     0.103     0.223     0.287     0.751
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=50 P=16 / Run warmup ===
+Time: 2026-10-21T15:43:40+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=10000 clients=50 pipeline=16
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 10000 -c 50 -P 16 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  10000 requests completed in 0.01 seconds
+  50 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.151 milliseconds (cumulative count 16)
+50.000% <= 0.519 milliseconds (cumulative count 5056)
+75.000% <= 0.591 milliseconds (cumulative count 7808)
+87.500% <= 0.647 milliseconds (cumulative count 8928)
+93.750% <= 0.695 milliseconds (cumulative count 9440)
+96.875% <= 0.727 milliseconds (cumulative count 9744)
+98.438% <= 0.759 milliseconds (cumulative count 9856)
+99.219% <= 0.831 milliseconds (cumulative count 9936)
+99.609% <= 0.911 milliseconds (cumulative count 9968)
+99.805% <= 0.959 milliseconds (cumulative count 9984)
+99.902% <= 0.967 milliseconds (cumulative count 10000)
+100.000% <= 0.967 milliseconds (cumulative count 10000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.320% <= 0.207 milliseconds (cumulative count 32)
+4.320% <= 0.303 milliseconds (cumulative count 432)
+16.960% <= 0.407 milliseconds (cumulative count 1696)
+44.960% <= 0.503 milliseconds (cumulative count 4496)
+81.280% <= 0.607 milliseconds (cumulative count 8128)
+95.040% <= 0.703 milliseconds (cumulative count 9504)
+99.040% <= 0.807 milliseconds (cumulative count 9904)
+99.520% <= 0.903 milliseconds (cumulative count 9952)
+100.000% <= 1.007 milliseconds (cumulative count 10000)
+Summary:
+  throughput summary: 833333.31 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.515     0.144     0.519     0.703     0.807     0.967
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=50 P=16 / Run 1 ===
+Time: 2026-10-21T15:43:41+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=50 pipeline=16
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 50 -P 16 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.13 seconds
+  50 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.207 milliseconds (cumulative count 16)
+50.000% <= 0.535 milliseconds (cumulative count 50736)
+75.000% <= 0.623 milliseconds (cumulative count 75600)
+87.500% <= 0.711 milliseconds (cumulative count 88096)
+93.750% <= 0.815 milliseconds (cumulative count 94064)
+96.875% <= 0.967 milliseconds (cumulative count 96880)
+98.438% <= 1.103 milliseconds (cumulative count 98512)
+99.219% <= 1.207 milliseconds (cumulative count 99232)
+99.609% <= 1.271 milliseconds (cumulative count 99648)
+99.805% <= 1.335 milliseconds (cumulative count 99824)
+99.902% <= 1.391 milliseconds (cumulative count 99904)
+99.951% <= 1.415 milliseconds (cumulative count 99952)
+99.976% <= 1.439 milliseconds (cumulative count 99984)
+99.988% <= 1.455 milliseconds (cumulative count 100000)
+100.000% <= 1.455 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.016% <= 0.207 milliseconds (cumulative count 16)
+0.384% <= 0.303 milliseconds (cumulative count 384)
+10.000% <= 0.407 milliseconds (cumulative count 10000)
+39.840% <= 0.503 milliseconds (cumulative count 39840)
+72.192% <= 0.607 milliseconds (cumulative count 72192)
+87.232% <= 0.703 milliseconds (cumulative count 87232)
+93.712% <= 0.807 milliseconds (cumulative count 93712)
+96.032% <= 0.903 milliseconds (cumulative count 96032)
+97.376% <= 1.007 milliseconds (cumulative count 97376)
+98.512% <= 1.103 milliseconds (cumulative count 98512)
+99.232% <= 1.207 milliseconds (cumulative count 99232)
+99.744% <= 1.303 milliseconds (cumulative count 99744)
+99.936% <= 1.407 milliseconds (cumulative count 99936)
+100.000% <= 1.503 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 751879.69 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.563     0.200     0.535     0.847     1.191     1.455
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=50 P=16 / Run 2 ===
+Time: 2026-10-21T15:43:41+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=50 pipeline=16
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 50 -P 16 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.12 seconds
+  50 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.199 milliseconds (cumulative count 16)
+50.000% <= 0.519 milliseconds (cumulative count 52672)
+75.000% <= 0.591 milliseconds (cumulative count 76480)
+87.500% <= 0.647 milliseconds (cumulative count 88016)
+93.750% <= 0.703 milliseconds (cumulative count 93760)
+96.875% <= 0.759 milliseconds (cumulative count 97072)
+98.438% <= 0.823 milliseconds (cumulative count 98496)
+99.219% <= 0.919 milliseconds (cumulative count 99232)
+99.609% <= 1.023 milliseconds (cumulative count 99632)
+99.805% <= 1.079 milliseconds (cumulative count 99824)
+99.902% <= 1.103 milliseconds (cumulative count 99904)
+99.951% <= 1.135 milliseconds (cumulative count 99952)
+99.976% <= 1.159 milliseconds (cumulative count 99984)
+99.988% <= 1.167 milliseconds (cumulative count 100000)
+100.000% <= 1.167 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.016% <= 0.207 milliseconds (cumulative count 16)
+0.352% <= 0.303 milliseconds (cumulative count 352)
+13.632% <= 0.407 milliseconds (cumulative count 13632)
+46.592% <= 0.503 milliseconds (cumulative count 46592)
+80.736% <= 0.607 milliseconds (cumulative count 80736)
+93.760% <= 0.703 milliseconds (cumulative count 93760)
+98.272% <= 0.807 milliseconds (cumulative count 98272)
+99.152% <= 0.903 milliseconds (cumulative count 99152)
+99.536% <= 1.007 milliseconds (cumulative count 99536)
+99.904% <= 1.103 milliseconds (cumulative count 99904)
+100.000% <= 1.207 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 806451.62 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.525     0.192     0.519     0.727     0.887     1.167
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=50 P=16 / Run 3 ===
+Time: 2026-10-21T15:43:42+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=50 pipeline=16
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 50 -P 16 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.13 seconds
+  50 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.175 milliseconds (cumulative count 16)
+50.000% <= 0.519 milliseconds (cumulative count 51232)
+75.000% <= 0.599 milliseconds (cumulative count 76336)
+87.500% <= 0.671 milliseconds (cumulative count 88224)
+93.750% <= 0.751 milliseconds (cumulative count 93856)
+96.875% <= 0.831 milliseconds (cumulative count 96880)
+98.438% <= 0.911 milliseconds (cumulative count 98592)
+99.219% <= 1.047 milliseconds (cumulative count 99232)
+99.609% <= 1.311 milliseconds (cumulative count 99616)
+99.805% <= 1.527 milliseconds (cumulative count 99808)
+99.902% <= 1.583 milliseconds (cumulative count 99920)
+99.951% <= 1.591 milliseconds (cumulative count 99952)
+99.976% <= 1.607 milliseconds (cumulative count 99984)
+99.988% <= 1.631 milliseconds (cumulative count 100000)
+100.000% <= 1.631 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.032% <= 0.207 milliseconds (cumulative count 32)
+0.480% <= 0.303 milliseconds (cumulative count 480)
+14.128% <= 0.407 milliseconds (cumulative count 14128)
+45.760% <= 0.503 milliseconds (cumulative count 45760)
+78.032% <= 0.607 milliseconds (cumulative count 78032)
+91.104% <= 0.703 milliseconds (cumulative count 91104)
+96.224% <= 0.807 milliseconds (cumulative count 96224)
+98.416% <= 0.903 milliseconds (cumulative count 98416)
+99.184% <= 1.007 milliseconds (cumulative count 99184)
+99.344% <= 1.103 milliseconds (cumulative count 99344)
+99.552% <= 1.207 milliseconds (cumulative count 99552)
+99.600% <= 1.303 milliseconds (cumulative count 99600)
+99.648% <= 1.407 milliseconds (cumulative count 99648)
+99.712% <= 1.503 milliseconds (cumulative count 99712)
+99.984% <= 1.607 milliseconds (cumulative count 99984)
+100.000% <= 1.703 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 781249.94 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.535     0.168     0.519     0.783     0.967     1.631
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=64 / Run warmup ===
+Time: 2026-10-21T15:43:42+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=10000 clients=10 pipeline=64
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 10000 -c 10 -P 64 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  10048 requests completed in 0.01 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.063 milliseconds (cumulative count 64)
+50.000% <= 0.143 milliseconds (cumulative count 5032)
+75.000% <= 0.191 milliseconds (cumulative count 7568)
+87.500% <= 0.255 milliseconds (cumulative count 8848)
+93.750% <= 0.335 milliseconds (cumulative count 9424)
+96.875% <= 0.351 milliseconds (cumulative count 9744)
+98.438% <= 0.383 milliseconds (cumulative count 9872)
+99.219% <= 0.439 milliseconds (cumulative count 10000)
+100.000% <= 0.439 milliseconds (cumulative count 10000)
+Cumulative distribution of latencies:
+17.280% <= 0.103 milliseconds (cumulative count 1728)
+80.800% <= 0.207 milliseconds (cumulative count 8080)
+91.680% <= 0.303 milliseconds (cumulative count 9168)
+98.720% <= 0.407 milliseconds (cumulative count 9872)
+100.000% <= 0.503 milliseconds (cumulative count 10000)
+Summary:
+  throughput summary: 1256000.00 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.164     0.056     0.143     0.343     0.439     0.439
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=64 / Run 1 ===
+Time: 2026-10-21T15:43:43+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=10 pipeline=64
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 10 -P 64 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100032 requests completed in 0.10 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.055 milliseconds (cumulative count 64)
+50.000% <= 0.159 milliseconds (cumulative count 51054)
+75.000% <= 0.223 milliseconds (cumulative count 76256)
+87.500% <= 0.287 milliseconds (cumulative count 88096)
+93.750% <= 0.367 milliseconds (cumulative count 94176)
+96.875% <= 0.471 milliseconds (cumulative count 97056)
+98.438% <= 0.615 milliseconds (cumulative count 98464)
+99.219% <= 1.503 milliseconds (cumulative count 99232)
+99.609% <= 1.879 milliseconds (cumulative count 99616)
+99.805% <= 2.183 milliseconds (cumulative count 99808)
+99.902% <= 2.231 milliseconds (cumulative count 99936)
+99.951% <= 2.383 milliseconds (cumulative count 100000)
+100.000% <= 2.383 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+12.526% <= 0.103 milliseconds (cumulative count 12526)
+71.520% <= 0.207 milliseconds (cumulative count 71520)
+89.888% <= 0.303 milliseconds (cumulative count 89888)
+95.584% <= 0.407 milliseconds (cumulative count 95584)
+97.440% <= 0.503 milliseconds (cumulative count 97440)
+98.336% <= 0.607 milliseconds (cumulative count 98336)
+98.784% <= 0.703 milliseconds (cumulative count 98784)
+98.848% <= 0.807 milliseconds (cumulative count 98848)
+98.912% <= 1.303 milliseconds (cumulative count 98912)
+99.040% <= 1.407 milliseconds (cumulative count 99040)
+99.232% <= 1.503 milliseconds (cumulative count 99232)
+99.296% <= 1.607 milliseconds (cumulative count 99296)
+99.424% <= 1.703 milliseconds (cumulative count 99424)
+99.616% <= 1.903 milliseconds (cumulative count 99616)
+99.680% <= 2.007 milliseconds (cumulative count 99680)
+99.744% <= 2.103 milliseconds (cumulative count 99744)
+100.000% <= 3.103 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 1042000.00 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.201     0.048     0.159     0.391     1.383     2.383
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=64 / Run 2 ===
+Time: 2026-10-21T15:43:43+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=10 pipeline=64
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 10 -P 64 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100032 requests completed in 0.08 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.055 milliseconds (cumulative count 256)
+50.000% <= 0.151 milliseconds (cumulative count 51776)
+75.000% <= 0.207 milliseconds (cumulative count 77024)
+87.500% <= 0.255 milliseconds (cumulative count 87712)
+93.750% <= 0.303 milliseconds (cumulative count 94304)
+96.875% <= 0.343 milliseconds (cumulative count 97248)
+98.438% <= 0.375 milliseconds (cumulative count 98528)
+99.219% <= 0.415 milliseconds (cumulative count 99360)
+99.609% <= 0.455 milliseconds (cumulative count 99680)
+99.805% <= 0.479 milliseconds (cumulative count 99808)
+99.902% <= 0.495 milliseconds (cumulative count 99936)
+99.951% <= 0.519 milliseconds (cumulative count 100000)
+100.000% <= 0.519 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+17.088% <= 0.103 milliseconds (cumulative count 17088)
+77.024% <= 0.207 milliseconds (cumulative count 77024)
+94.304% <= 0.303 milliseconds (cumulative count 94304)
+99.168% <= 0.407 milliseconds (cumulative count 99168)
+99.936% <= 0.503 milliseconds (cumulative count 99936)
+100.000% <= 0.607 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 1219902.38 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.167     0.048     0.151     0.319     0.399     0.519
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=64 / Run 3 ===
+Time: 2026-10-21T15:43:44+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=10 pipeline=64
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 10 -P 64 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100017 requests completed in 0.09 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.047 milliseconds (cumulative count 192)
+50.000% <= 0.151 milliseconds (cumulative count 53301)
+75.000% <= 0.199 milliseconds (cumulative count 75296)
+87.500% <= 0.271 milliseconds (cumulative count 87520)
+93.750% <= 0.375 milliseconds (cumulative count 94176)
+96.875% <= 0.519 milliseconds (cumulative count 96928)
+98.438% <= 0.647 milliseconds (cumulative count 98464)
+99.219% <= 0.711 milliseconds (cumulative count 99232)
+99.609% <= 0.815 milliseconds (cumulative count 99616)
+99.805% <= 0.831 milliseconds (cumulative count 99808)
+99.902% <= 0.895 milliseconds (cumulative count 99936)
+99.951% <= 0.903 milliseconds (cumulative count 100000)
+100.000% <= 0.903 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+17.472% <= 0.103 milliseconds (cumulative count 17472)
+77.344% <= 0.207 milliseconds (cumulative count 77344)
+90.720% <= 0.303 milliseconds (cumulative count 90720)
+95.072% <= 0.407 milliseconds (cumulative count 95072)
+96.800% <= 0.503 milliseconds (cumulative count 96800)
+98.080% <= 0.607 milliseconds (cumulative count 98080)
+99.168% <= 0.703 milliseconds (cumulative count 99168)
+99.552% <= 0.807 milliseconds (cumulative count 99552)
+100.000% <= 0.903 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 1162988.38 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.180     0.040     0.151     0.407     0.695     0.903
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=256 / Run warmup ===
+Time: 2026-10-21T15:43:45+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=10000 clients=10 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 10000 -c 10 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  10076 requests completed in 0.00 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.087 milliseconds (cumulative count 256)
+50.000% <= 0.207 milliseconds (cumulative count 5136)
+75.000% <= 0.327 milliseconds (cumulative count 7696)
+87.500% <= 0.367 milliseconds (cumulative count 9232)
+93.750% <= 0.375 milliseconds (cumulative count 9488)
+96.875% <= 0.383 milliseconds (cumulative count 10000)
+100.000% <= 0.383 milliseconds (cumulative count 10000)
+Cumulative distribution of latencies:
+4.240% <= 0.103 milliseconds (cumulative count 424)
+51.360% <= 0.207 milliseconds (cumulative count 5136)
+71.840% <= 0.303 milliseconds (cumulative count 7184)
+100.000% <= 0.407 milliseconds (cumulative count 10000)
+Summary:
+  throughput summary: 2015200.00 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.225     0.080     0.207     0.383     0.383     0.383
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=256 / Run 1 ===
+Time: 2026-10-21T15:43:45+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=10 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 10 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100071 requests completed in 0.06 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.071 milliseconds (cumulative count 512)
+50.000% <= 0.159 milliseconds (cumulative count 55529)
+75.000% <= 0.207 milliseconds (cumulative count 76192)
+87.500% <= 0.303 milliseconds (cumulative count 87712)
+93.750% <= 0.423 milliseconds (cumulative count 93856)
+96.875% <= 0.559 milliseconds (cumulative count 96928)
+98.438% <= 0.775 milliseconds (cumulative count 98464)
+99.219% <= 0.807 milliseconds (cumulative count 99232)
+99.609% <= 0.855 milliseconds (cumulative count 99744)
+99.805% <= 0.863 milliseconds (cumulative count 100000)
+100.000% <= 0.863 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+10.240% <= 0.103 milliseconds (cumulative count 10240)
+76.192% <= 0.207 milliseconds (cumulative count 76192)
+87.712% <= 0.303 milliseconds (cumulative count 87712)
+93.088% <= 0.407 milliseconds (cumulative count 93088)
+95.648% <= 0.503 milliseconds (cumulative count 95648)
+97.184% <= 0.607 milliseconds (cumulative count 97184)
+97.952% <= 0.703 milliseconds (cumulative count 97952)
+99.232% <= 0.807 milliseconds (cumulative count 99232)
+100.000% <= 0.903 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 1696118.62 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.196     0.064     0.159     0.487     0.807     0.863
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=256 / Run 2 ===
+Time: 2026-10-21T15:43:45+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=10 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 10 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100066 requests completed in 0.06 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.079 milliseconds (cumulative count 256)
+50.000% <= 0.199 milliseconds (cumulative count 51616)
+75.000% <= 0.303 milliseconds (cumulative count 75168)
+87.500% <= 0.463 milliseconds (cumulative count 87712)
+93.750% <= 0.639 milliseconds (cumulative count 94112)
+96.875% <= 0.695 milliseconds (cumulative count 96928)
+98.438% <= 0.815 milliseconds (cumulative count 98464)
+99.219% <= 1.015 milliseconds (cumulative count 99232)
+99.609% <= 1.087 milliseconds (cumulative count 99744)
+99.805% <= 1.639 milliseconds (cumulative count 100000)
+100.000% <= 1.639 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+3.584% <= 0.103 milliseconds (cumulative count 3584)
+55.200% <= 0.207 milliseconds (cumulative count 55200)
+75.168% <= 0.303 milliseconds (cumulative count 75168)
+85.152% <= 0.407 milliseconds (cumulative count 85152)
+89.504% <= 0.503 milliseconds (cumulative count 89504)
+92.576% <= 0.607 milliseconds (cumulative count 92576)
+96.928% <= 0.703 milliseconds (cumulative count 96928)
+98.208% <= 0.807 milliseconds (cumulative count 98208)
+98.720% <= 0.903 milliseconds (cumulative count 98720)
+98.976% <= 1.007 milliseconds (cumulative count 98976)
+99.744% <= 1.103 milliseconds (cumulative count 99744)
+100.000% <= 1.703 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 1613967.75 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.263     0.072     0.199     0.655     1.015     1.639
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=10 P=256 / Run 3 ===
+Time: 2026-10-21T15:43:46+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=10 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 10 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100096 requests completed in 0.05 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.079 milliseconds (cumulative count 512)
+50.000% <= 0.151 milliseconds (cumulative count 51616)
+75.000% <= 0.191 milliseconds (cumulative count 77216)
+87.500% <= 0.223 milliseconds (cumulative count 88992)
+93.750% <= 0.279 milliseconds (cumulative count 93856)
+96.875% <= 0.327 milliseconds (cumulative count 97440)
+98.438% <= 0.343 milliseconds (cumulative count 98720)
+99.219% <= 0.367 milliseconds (cumulative count 99232)
+99.609% <= 0.399 milliseconds (cumulative count 99744)
+99.805% <= 0.527 milliseconds (cumulative count 100000)
+100.000% <= 0.527 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+9.984% <= 0.103 milliseconds (cumulative count 9984)
+83.104% <= 0.207 milliseconds (cumulative count 83104)
+95.136% <= 0.303 milliseconds (cumulative count 95136)
+99.744% <= 0.407 milliseconds (cumulative count 99744)
+100.000% <= 0.607 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 1819927.25 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.164     0.072     0.151     0.295     0.367     0.527
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=50 P=256 / Run warmup ===
+Time: 2026-10-21T15:43:46+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=10000 clients=50 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 10000 -c 50 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  10240 requests completed in 0.00 seconds
+  50 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.511 milliseconds (cumulative count 256)
+50.000% <= 1.063 milliseconds (cumulative count 5136)
+75.000% <= 1.239 milliseconds (cumulative count 7696)
+87.500% <= 1.279 milliseconds (cumulative count 8976)
+93.750% <= 1.303 milliseconds (cumulative count 9488)
+96.875% <= 1.327 milliseconds (cumulative count 9744)
+98.438% <= 1.335 milliseconds (cumulative count 10000)
+100.000% <= 1.335 milliseconds (cumulative count 10000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+12.800% <= 0.607 milliseconds (cumulative count 1280)
+29.630% <= 0.703 milliseconds (cumulative count 2963)
+38.780% <= 0.807 milliseconds (cumulative count 3878)
+41.340% <= 0.903 milliseconds (cumulative count 4134)
+46.460% <= 1.007 milliseconds (cumulative count 4646)
+59.040% <= 1.103 milliseconds (cumulative count 5904)
+69.280% <= 1.207 milliseconds (cumulative count 6928)
+94.880% <= 1.303 milliseconds (cumulative count 9488)
+100.000% <= 1.407 milliseconds (cumulative count 10000)
+Summary:
+  throughput summary: 3413333.25 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.963     0.504     1.063     1.327     1.335     1.335
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=50 P=256 / Run 1 ===
+Time: 2026-10-21T15:43:47+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=50 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 50 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100096 requests completed in 0.05 seconds
+  50 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.239 milliseconds (cumulative count 256)
+50.000% <= 1.271 milliseconds (cumulative count 50080)
+75.000% <= 2.399 milliseconds (cumulative count 75168)
+87.500% <= 4.031 milliseconds (cumulative count 87712)
+93.750% <= 4.791 milliseconds (cumulative count 94112)
+96.875% <= 5.527 milliseconds (cumulative count 97184)
+98.438% <= 5.815 milliseconds (cumulative count 98464)
+99.219% <= 6.183 milliseconds (cumulative count 99232)
+99.609% <= 6.479 milliseconds (cumulative count 99744)
+99.805% <= 6.623 milliseconds (cumulative count 100000)
+100.000% <= 6.623 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.512% <= 0.303 milliseconds (cumulative count 512)
+3.072% <= 0.407 milliseconds (cumulative count 3072)
+5.888% <= 0.503 milliseconds (cumulative count 5888)
+11.520% <= 0.607 milliseconds (cumulative count 11520)
+17.408% <= 0.703 milliseconds (cumulative count 17408)
+24.832% <= 0.807 milliseconds (cumulative count 24832)
+32.768% <= 0.903 milliseconds (cumulative count 32768)
+41.216% <= 1.007 milliseconds (cumulative count 41216)
+46.336% <= 1.103 milliseconds (cumulative count 46336)
+48.640% <= 1.207 milliseconds (cumulative count 48640)
+50.592% <= 1.303 milliseconds (cumulative count 50592)
+53.152% <= 1.407 milliseconds (cumulative count 53152)
+56.992% <= 1.503 milliseconds (cumulative count 56992)
+59.552% <= 1.607 milliseconds (cumulative count 59552)
+61.856% <= 1.703 milliseconds (cumulative count 61856)
+63.136% <= 1.807 milliseconds (cumulative count 63136)
+64.416% <= 1.903 milliseconds (cumulative count 64416)
+66.208% <= 2.007 milliseconds (cumulative count 66208)
+69.280% <= 2.103 milliseconds (cumulative count 69280)
+82.336% <= 3.103 milliseconds (cumulative count 82336)
+87.968% <= 4.103 milliseconds (cumulative count 87968)
+95.136% <= 5.103 milliseconds (cumulative count 95136)
+98.976% <= 6.103 milliseconds (cumulative count 98976)
+100.000% <= 7.103 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 2042775.62 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        1.846     0.232     1.271     4.959     6.183     6.623
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=50 P=256 / Run 2 ===
+Time: 2026-10-21T15:43:47+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=50 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 50 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100096 requests completed in 0.05 seconds
+  50 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.447 milliseconds (cumulative count 256)
+50.000% <= 1.439 milliseconds (cumulative count 50176)
+75.000% <= 1.975 milliseconds (cumulative count 75008)
+87.500% <= 2.647 milliseconds (cumulative count 87552)
+93.750% <= 3.703 milliseconds (cumulative count 94112)
+96.875% <= 4.063 milliseconds (cumulative count 96928)
+98.438% <= 5.319 milliseconds (cumulative count 98464)
+99.219% <= 5.639 milliseconds (cumulative count 99232)
+99.609% <= 5.751 milliseconds (cumulative count 99744)
+99.805% <= 5.847 milliseconds (cumulative count 100000)
+100.000% <= 5.847 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.768% <= 0.503 milliseconds (cumulative count 768)
+4.608% <= 0.607 milliseconds (cumulative count 4608)
+10.240% <= 0.703 milliseconds (cumulative count 10240)
+18.176% <= 0.807 milliseconds (cumulative count 18176)
+20.736% <= 0.903 milliseconds (cumulative count 20736)
+25.600% <= 1.007 milliseconds (cumulative count 25600)
+29.696% <= 1.103 milliseconds (cumulative count 29696)
+37.632% <= 1.207 milliseconds (cumulative count 37632)
+41.984% <= 1.303 milliseconds (cumulative count 41984)
+48.384% <= 1.407 milliseconds (cumulative count 48384)
+52.480% <= 1.503 milliseconds (cumulative count 52480)
+57.344% <= 1.607 milliseconds (cumulative count 57344)
+62.720% <= 1.703 milliseconds (cumulative count 62720)
+67.840% <= 1.807 milliseconds (cumulative count 67840)
+70.912% <= 1.903 milliseconds (cumulative count 70912)
+76.800% <= 2.007 milliseconds (cumulative count 76800)
+79.360% <= 2.103 milliseconds (cumulative count 79360)
+91.808% <= 3.103 milliseconds (cumulative count 91808)
+96.928% <= 4.103 milliseconds (cumulative count 96928)
+97.952% <= 5.103 milliseconds (cumulative count 97952)
+100.000% <= 6.103 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 2224355.50 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        1.668     0.440     1.439     3.815     5.639     5.847
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=50 P=256 / Run 3 ===
+Time: 2026-10-21T15:43:48+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=50 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 50 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100096 requests completed in 0.05 seconds
+  50 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.119 milliseconds (cumulative count 256)
+50.000% <= 1.279 milliseconds (cumulative count 50176)
+75.000% <= 2.263 milliseconds (cumulative count 75008)
+87.500% <= 2.871 milliseconds (cumulative count 87712)
+93.750% <= 3.271 milliseconds (cumulative count 93856)
+96.875% <= 3.575 milliseconds (cumulative count 96928)
+98.438% <= 4.087 milliseconds (cumulative count 98464)
+99.219% <= 4.423 milliseconds (cumulative count 99232)
+99.609% <= 4.823 milliseconds (cumulative count 99744)
+99.805% <= 4.935 milliseconds (cumulative count 100000)
+100.000% <= 4.935 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.256% <= 0.207 milliseconds (cumulative count 256)
+0.768% <= 0.303 milliseconds (cumulative count 768)
+3.072% <= 0.407 milliseconds (cumulative count 3072)
+6.144% <= 0.503 milliseconds (cumulative count 6144)
+10.496% <= 0.607 milliseconds (cumulative count 10496)
+15.872% <= 0.703 milliseconds (cumulative count 15872)
+26.624% <= 0.807 milliseconds (cumulative count 26624)
+32.000% <= 0.903 milliseconds (cumulative count 32000)
+36.608% <= 1.007 milliseconds (cumulative count 36608)
+41.984% <= 1.103 milliseconds (cumulative count 41984)
+46.080% <= 1.207 milliseconds (cumulative count 46080)
+50.688% <= 1.303 milliseconds (cumulative count 50688)
+55.552% <= 1.407 milliseconds (cumulative count 55552)
+58.624% <= 1.503 milliseconds (cumulative count 58624)
+60.672% <= 1.607 milliseconds (cumulative count 60672)
+65.280% <= 1.703 milliseconds (cumulative count 65280)
+68.352% <= 1.807 milliseconds (cumulative count 68352)
+69.888% <= 1.903 milliseconds (cumulative count 69888)
+71.680% <= 2.007 milliseconds (cumulative count 71680)
+73.216% <= 2.103 milliseconds (cumulative count 73216)
+91.296% <= 3.103 milliseconds (cumulative count 91296)
+98.464% <= 4.103 milliseconds (cumulative count 98464)
+100.000% <= 5.103 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 2129702.25 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        1.568     0.112     1.279     3.383     4.423     4.935
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=100 P=1 / Run warmup ===
+Time: 2026-10-21T15:43:48+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=10000 clients=100 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 10000 -c 100 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  10000 requests completed in 0.08 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.095 milliseconds (cumulative count 1)
+50.000% <= 0.415 milliseconds (cumulative count 5335)
+75.000% <= 0.463 milliseconds (cumulative count 7557)
+87.500% <= 0.503 milliseconds (cumulative count 8821)
+93.750% <= 0.535 milliseconds (cumulative count 9393)
+96.875% <= 0.583 milliseconds (cumulative count 9712)
+98.438% <= 0.631 milliseconds (cumulative count 9850)
+99.219% <= 0.687 milliseconds (cumulative count 9925)
+99.609% <= 0.911 milliseconds (cumulative count 9961)
+99.805% <= 1.103 milliseconds (cumulative count 9982)
+99.902% <= 1.183 milliseconds (cumulative count 9991)
+99.951% <= 1.231 milliseconds (cumulative count 9996)
+99.976% <= 1.247 milliseconds (cumulative count 9998)
+99.988% <= 1.263 milliseconds (cumulative count 9999)
+99.994% <= 1.279 milliseconds (cumulative count 10000)
+100.000% <= 1.279 milliseconds (cumulative count 10000)
+Cumulative distribution of latencies:
+0.010% <= 0.103 milliseconds (cumulative count 1)
+0.630% <= 0.207 milliseconds (cumulative count 63)
+9.300% <= 0.303 milliseconds (cumulative count 930)
+49.630% <= 0.407 milliseconds (cumulative count 4963)
+88.210% <= 0.503 milliseconds (cumulative count 8821)
+97.880% <= 0.607 milliseconds (cumulative count 9788)
+99.280% <= 0.703 milliseconds (cumulative count 9928)
+99.490% <= 0.807 milliseconds (cumulative count 9949)
+99.600% <= 0.903 milliseconds (cumulative count 9960)
+99.730% <= 1.007 milliseconds (cumulative count 9973)
+99.820% <= 1.103 milliseconds (cumulative count 9982)
+99.930% <= 1.207 milliseconds (cumulative count 9993)
+100.000% <= 1.303 milliseconds (cumulative count 10000)
+Summary:
+  throughput summary: 126582.27 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.412     0.088     0.415     0.551     0.663     1.279
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=100 P=1 / Run 1 ===
+Time: 2026-10-21T15:43:49+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=100 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 100 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.77 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.087 milliseconds (cumulative count 1)
+50.000% <= 0.391 milliseconds (cumulative count 50955)
+75.000% <= 0.423 milliseconds (cumulative count 79333)
+87.500% <= 0.447 milliseconds (cumulative count 89939)
+93.750% <= 0.471 milliseconds (cumulative count 94942)
+96.875% <= 0.495 milliseconds (cumulative count 97346)
+98.438% <= 0.519 milliseconds (cumulative count 98510)
+99.219% <= 0.551 milliseconds (cumulative count 99247)
+99.609% <= 0.583 milliseconds (cumulative count 99612)
+99.805% <= 0.647 milliseconds (cumulative count 99813)
+99.902% <= 0.695 milliseconds (cumulative count 99908)
+99.951% <= 0.759 milliseconds (cumulative count 99952)
+99.976% <= 0.911 milliseconds (cumulative count 99976)
+99.988% <= 0.999 milliseconds (cumulative count 99988)
+99.994% <= 1.039 milliseconds (cumulative count 99994)
+99.997% <= 1.071 milliseconds (cumulative count 99997)
+99.998% <= 1.079 milliseconds (cumulative count 99999)
+99.999% <= 1.103 milliseconds (cumulative count 100000)
+100.000% <= 1.103 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.005% <= 0.103 milliseconds (cumulative count 5)
+0.078% <= 0.207 milliseconds (cumulative count 78)
+1.089% <= 0.303 milliseconds (cumulative count 1089)
+67.077% <= 0.407 milliseconds (cumulative count 67077)
+97.820% <= 0.503 milliseconds (cumulative count 97820)
+99.741% <= 0.607 milliseconds (cumulative count 99741)
+99.922% <= 0.703 milliseconds (cumulative count 99922)
+99.963% <= 0.807 milliseconds (cumulative count 99963)
+99.975% <= 0.903 milliseconds (cumulative count 99975)
+99.989% <= 1.007 milliseconds (cumulative count 99989)
+100.000% <= 1.103 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 130208.34 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.396     0.080     0.391     0.479     0.543     1.103
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=100 P=1 / Run 2 ===
+Time: 2026-10-21T15:43:50+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=100 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 100 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.79 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.071 milliseconds (cumulative count 1)
+50.000% <= 0.399 milliseconds (cumulative count 51159)
+75.000% <= 0.439 milliseconds (cumulative count 77858)
+87.500% <= 0.471 milliseconds (cumulative count 89199)
+93.750% <= 0.495 milliseconds (cumulative count 93928)
+96.875% <= 0.535 milliseconds (cumulative count 97243)
+98.438% <= 0.567 milliseconds (cumulative count 98542)
+99.219% <= 0.607 milliseconds (cumulative count 99267)
+99.609% <= 0.647 milliseconds (cumulative count 99632)
+99.805% <= 0.727 milliseconds (cumulative count 99805)
+99.902% <= 0.847 milliseconds (cumulative count 99906)
+99.951% <= 0.943 milliseconds (cumulative count 99952)
+99.976% <= 1.023 milliseconds (cumulative count 99977)
+99.988% <= 1.079 milliseconds (cumulative count 99988)
+99.994% <= 1.127 milliseconds (cumulative count 99994)
+99.997% <= 1.151 milliseconds (cumulative count 99997)
+99.998% <= 1.167 milliseconds (cumulative count 99999)
+99.999% <= 1.183 milliseconds (cumulative count 100000)
+100.000% <= 1.183 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.005% <= 0.103 milliseconds (cumulative count 5)
+0.032% <= 0.207 milliseconds (cumulative count 32)
+1.425% <= 0.303 milliseconds (cumulative count 1425)
+57.644% <= 0.407 milliseconds (cumulative count 57644)
+94.921% <= 0.503 milliseconds (cumulative count 94921)
+99.267% <= 0.607 milliseconds (cumulative count 99267)
+99.760% <= 0.703 milliseconds (cumulative count 99760)
+99.876% <= 0.807 milliseconds (cumulative count 99876)
+99.939% <= 0.903 milliseconds (cumulative count 99939)
+99.973% <= 1.007 milliseconds (cumulative count 99973)
+99.991% <= 1.103 milliseconds (cumulative count 99991)
+100.000% <= 1.207 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 127064.80 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.406     0.064     0.399     0.511     0.591     1.183
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=100 P=1 / Run 3 ===
+Time: 2026-10-21T15:43:51+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=100 pipeline=1
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 100 -P 1 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.74 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.071 milliseconds (cumulative count 1)
+50.000% <= 0.383 milliseconds (cumulative count 57665)
+75.000% <= 0.407 milliseconds (cumulative count 77020)
+87.500% <= 0.431 milliseconds (cumulative count 87525)
+93.750% <= 0.463 milliseconds (cumulative count 94203)
+96.875% <= 0.495 milliseconds (cumulative count 97129)
+98.438% <= 0.527 milliseconds (cumulative count 98607)
+99.219% <= 0.551 milliseconds (cumulative count 99276)
+99.609% <= 0.583 milliseconds (cumulative count 99680)
+99.805% <= 0.607 milliseconds (cumulative count 99815)
+99.902% <= 0.655 milliseconds (cumulative count 99918)
+99.951% <= 0.815 milliseconds (cumulative count 99953)
+99.976% <= 1.007 milliseconds (cumulative count 99976)
+99.988% <= 1.111 milliseconds (cumulative count 99988)
+99.994% <= 1.175 milliseconds (cumulative count 99994)
+99.997% <= 1.191 milliseconds (cumulative count 99997)
+99.998% <= 1.207 milliseconds (cumulative count 99999)
+99.999% <= 1.231 milliseconds (cumulative count 100000)
+100.000% <= 1.231 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.008% <= 0.103 milliseconds (cumulative count 8)
+0.025% <= 0.207 milliseconds (cumulative count 25)
+1.687% <= 0.303 milliseconds (cumulative count 1687)
+77.020% <= 0.407 milliseconds (cumulative count 77020)
+97.597% <= 0.503 milliseconds (cumulative count 97597)
+99.815% <= 0.607 milliseconds (cumulative count 99815)
+99.934% <= 0.703 milliseconds (cumulative count 99934)
+99.951% <= 0.807 milliseconds (cumulative count 99951)
+99.963% <= 0.903 milliseconds (cumulative count 99963)
+99.976% <= 1.007 milliseconds (cumulative count 99976)
+99.986% <= 1.103 milliseconds (cumulative count 99986)
+99.999% <= 1.207 milliseconds (cumulative count 99999)
+100.000% <= 1.303 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 134770.89 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.383     0.064     0.383     0.471     0.543     1.231
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=100 P=16 / Run warmup ===
+Time: 2026-10-21T15:43:53+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=10000 clients=100 pipeline=16
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 10000 -c 100 -P 16 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  10000 requests completed in 0.01 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.423 milliseconds (cumulative count 16)
+50.000% <= 1.119 milliseconds (cumulative count 5040)
+75.000% <= 1.287 milliseconds (cumulative count 7568)
+87.500% <= 1.415 milliseconds (cumulative count 8832)
+93.750% <= 1.487 milliseconds (cumulative count 9392)
+96.875% <= 1.631 milliseconds (cumulative count 9696)
+98.438% <= 1.743 milliseconds (cumulative count 9856)
+99.219% <= 1.799 milliseconds (cumulative count 9936)
+99.609% <= 1.847 milliseconds (cumulative count 9968)
+99.805% <= 1.887 milliseconds (cumulative count 9984)
+99.902% <= 1.983 milliseconds (cumulative count 10000)
+100.000% <= 1.983 milliseconds (cumulative count 10000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.800% <= 0.503 milliseconds (cumulative count 80)
+4.160% <= 0.607 milliseconds (cumulative count 416)
+7.840% <= 0.703 milliseconds (cumulative count 784)
+13.440% <= 0.807 milliseconds (cumulative count 1344)
+22.880% <= 0.903 milliseconds (cumulative count 2288)
+34.720% <= 1.007 milliseconds (cumulative count 3472)
+48.320% <= 1.103 milliseconds (cumulative count 4832)
+64.000% <= 1.207 milliseconds (cumulative count 6400)
+77.600% <= 1.303 milliseconds (cumulative count 7760)
+86.720% <= 1.407 milliseconds (cumulative count 8672)
+95.040% <= 1.503 milliseconds (cumulative count 9504)
+96.640% <= 1.607 milliseconds (cumulative count 9664)
+97.760% <= 1.703 milliseconds (cumulative count 9776)
+99.360% <= 1.807 milliseconds (cumulative count 9936)
+99.840% <= 1.903 milliseconds (cumulative count 9984)
+100.000% <= 2.007 milliseconds (cumulative count 10000)
+Summary:
+  throughput summary: 769230.75 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        1.107     0.416     1.119     1.503     1.767     1.983
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=100 P=16 / Run 1 ===
+Time: 2026-10-21T15:43:53+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=100 pipeline=16
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 100 -P 16 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.12 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.487 milliseconds (cumulative count 16)
+50.000% <= 0.935 milliseconds (cumulative count 50944)
+75.000% <= 1.047 milliseconds (cumulative count 75584)
+87.500% <= 1.119 milliseconds (cumulative count 87504)
+93.750% <= 1.207 milliseconds (cumulative count 93776)
+96.875% <= 1.311 milliseconds (cumulative count 97024)
+98.438% <= 1.439 milliseconds (cumulative count 98480)
+99.219% <= 1.623 milliseconds (cumulative count 99248)
+99.609% <= 1.695 milliseconds (cumulative count 99696)
+99.805% <= 1.767 milliseconds (cumulative count 99808)
+99.902% <= 1.911 milliseconds (cumulative count 99904)
+99.951% <= 1.935 milliseconds (cumulative count 99968)
+99.976% <= 2.127 milliseconds (cumulative count 99984)
+99.988% <= 2.175 milliseconds (cumulative count 100000)
+100.000% <= 2.175 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.032% <= 0.503 milliseconds (cumulative count 32)
+0.912% <= 0.607 milliseconds (cumulative count 912)
+8.784% <= 0.703 milliseconds (cumulative count 8784)
+24.800% <= 0.807 milliseconds (cumulative count 24800)
+44.048% <= 0.903 milliseconds (cumulative count 44048)
+67.056% <= 1.007 milliseconds (cumulative count 67056)
+85.072% <= 1.103 milliseconds (cumulative count 85072)
+93.776% <= 1.207 milliseconds (cumulative count 93776)
+96.864% <= 1.303 milliseconds (cumulative count 96864)
+98.256% <= 1.407 milliseconds (cumulative count 98256)
+98.896% <= 1.503 milliseconds (cumulative count 98896)
+99.184% <= 1.607 milliseconds (cumulative count 99184)
+99.696% <= 1.703 milliseconds (cumulative count 99696)
+99.808% <= 1.807 milliseconds (cumulative count 99808)
+99.888% <= 1.903 milliseconds (cumulative count 99888)
+99.968% <= 2.007 milliseconds (cumulative count 99968)
+100.000% <= 3.103 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 869565.19 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.939     0.480     0.935     1.247     1.551     2.175
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=100 P=16 / Run 2 ===
+Time: 2026-10-21T15:43:54+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=100 pipeline=16
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 100 -P 16 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.12 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.319 milliseconds (cumulative count 16)
+50.000% <= 0.935 milliseconds (cumulative count 51008)
+75.000% <= 1.055 milliseconds (cumulative count 76256)
+87.500% <= 1.135 milliseconds (cumulative count 87984)
+93.750% <= 1.191 milliseconds (cumulative count 93760)
+96.875% <= 1.255 milliseconds (cumulative count 96960)
+98.438% <= 1.367 milliseconds (cumulative count 98448)
+99.219% <= 2.231 milliseconds (cumulative count 99232)
+99.609% <= 2.839 milliseconds (cumulative count 99616)
+99.805% <= 3.399 milliseconds (cumulative count 99824)
+99.902% <= 3.439 milliseconds (cumulative count 99920)
+99.951% <= 3.463 milliseconds (cumulative count 99968)
+99.976% <= 3.495 milliseconds (cumulative count 99984)
+99.988% <= 3.519 milliseconds (cumulative count 100000)
+100.000% <= 3.519 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.064% <= 0.407 milliseconds (cumulative count 64)
+0.624% <= 0.503 milliseconds (cumulative count 624)
+1.520% <= 0.607 milliseconds (cumulative count 1520)
+5.808% <= 0.703 milliseconds (cumulative count 5808)
+21.072% <= 0.807 milliseconds (cumulative count 21072)
+42.416% <= 0.903 milliseconds (cumulative count 42416)
+67.712% <= 1.007 milliseconds (cumulative count 67712)
+83.904% <= 1.103 milliseconds (cumulative count 83904)
+94.928% <= 1.207 milliseconds (cumulative count 94928)
+97.872% <= 1.303 milliseconds (cumulative count 97872)
+98.672% <= 1.407 milliseconds (cumulative count 98672)
+98.784% <= 1.503 milliseconds (cumulative count 98784)
+98.880% <= 1.607 milliseconds (cumulative count 98880)
+98.976% <= 1.703 milliseconds (cumulative count 98976)
+99.040% <= 1.807 milliseconds (cumulative count 99040)
+99.072% <= 1.903 milliseconds (cumulative count 99072)
+99.120% <= 2.007 milliseconds (cumulative count 99120)
+99.152% <= 2.103 milliseconds (cumulative count 99152)
+99.680% <= 3.103 milliseconds (cumulative count 99680)
+100.000% <= 4.103 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 862069.00 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.954     0.312     0.935     1.215     1.783     3.519
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=100 P=16 / Run 3 ===
+Time: 2026-10-21T15:43:54+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=100 pipeline=16
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 100 -P 16 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000 requests completed in 0.11 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.103 milliseconds (cumulative count 32)
+50.000% <= 0.927 milliseconds (cumulative count 51056)
+75.000% <= 1.015 milliseconds (cumulative count 76400)
+87.500% <= 1.079 milliseconds (cumulative count 88448)
+93.750% <= 1.127 milliseconds (cumulative count 94128)
+96.875% <= 1.167 milliseconds (cumulative count 96960)
+98.438% <= 1.215 milliseconds (cumulative count 98672)
+99.219% <= 1.255 milliseconds (cumulative count 99296)
+99.609% <= 1.407 milliseconds (cumulative count 99632)
+99.805% <= 1.575 milliseconds (cumulative count 99808)
+99.902% <= 1.647 milliseconds (cumulative count 99904)
+99.951% <= 1.831 milliseconds (cumulative count 99952)
+99.976% <= 2.391 milliseconds (cumulative count 99984)
+99.988% <= 2.503 milliseconds (cumulative count 100000)
+100.000% <= 2.503 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.032% <= 0.103 milliseconds (cumulative count 32)
+0.048% <= 0.207 milliseconds (cumulative count 48)
+0.064% <= 0.303 milliseconds (cumulative count 64)
+0.128% <= 0.407 milliseconds (cumulative count 128)
+0.192% <= 0.503 milliseconds (cumulative count 192)
+0.816% <= 0.607 milliseconds (cumulative count 816)
+3.984% <= 0.703 milliseconds (cumulative count 3984)
+17.280% <= 0.807 milliseconds (cumulative count 17280)
+43.712% <= 0.903 milliseconds (cumulative count 43712)
+74.400% <= 1.007 milliseconds (cumulative count 74400)
+91.776% <= 1.103 milliseconds (cumulative count 91776)
+98.432% <= 1.207 milliseconds (cumulative count 98432)
+99.488% <= 1.303 milliseconds (cumulative count 99488)
+99.632% <= 1.407 milliseconds (cumulative count 99632)
+99.728% <= 1.503 milliseconds (cumulative count 99728)
+99.840% <= 1.607 milliseconds (cumulative count 99840)
+99.904% <= 1.703 milliseconds (cumulative count 99904)
+99.936% <= 1.807 milliseconds (cumulative count 99936)
+99.968% <= 1.903 milliseconds (cumulative count 99968)
+100.000% <= 3.103 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 884955.75 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.927     0.096     0.927     1.143     1.231     2.503
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=100 P=256 / Run warmup ===
+Time: 2026-10-21T15:43:55+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=10000 clients=100 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 10000 -c 100 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  10092 requests completed in 0.00 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.559 milliseconds (cumulative count 197)
+50.000% <= 0.727 milliseconds (cumulative count 5061)
+75.000% <= 1.023 milliseconds (cumulative count 7696)
+87.500% <= 1.303 milliseconds (cumulative count 8976)
+93.750% <= 1.391 milliseconds (cumulative count 9488)
+96.875% <= 1.399 milliseconds (cumulative count 9744)
+98.438% <= 1.439 milliseconds (cumulative count 10000)
+100.000% <= 1.439 milliseconds (cumulative count 10000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+4.530% <= 0.607 milliseconds (cumulative count 453)
+42.930% <= 0.703 milliseconds (cumulative count 4293)
+56.480% <= 0.807 milliseconds (cumulative count 5648)
+74.400% <= 1.007 milliseconds (cumulative count 7440)
+76.960% <= 1.103 milliseconds (cumulative count 7696)
+89.760% <= 1.303 milliseconds (cumulative count 8976)
+97.440% <= 1.407 milliseconds (cumulative count 9744)
+100.000% <= 1.503 milliseconds (cumulative count 10000)
+Summary:
+  throughput summary: 3364000.00 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.889     0.552     0.727     1.399     1.439     1.439
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=100 P=256 / Run 1 ===
+Time: 2026-10-21T15:43:55+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=100 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 100 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100058 requests completed in 0.04 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.535 milliseconds (cumulative count 256)
+50.000% <= 2.311 milliseconds (cumulative count 50118)
+75.000% <= 4.631 milliseconds (cumulative count 75168)
+87.500% <= 6.751 milliseconds (cumulative count 87712)
+93.750% <= 6.991 milliseconds (cumulative count 93856)
+96.875% <= 7.143 milliseconds (cumulative count 97184)
+98.438% <= 7.191 milliseconds (cumulative count 98464)
+99.219% <= 7.287 milliseconds (cumulative count 99232)
+99.609% <= 7.415 milliseconds (cumulative count 99744)
+99.805% <= 7.447 milliseconds (cumulative count 100000)
+100.000% <= 7.447 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.512% <= 0.607 milliseconds (cumulative count 512)
+2.048% <= 0.807 milliseconds (cumulative count 2048)
+5.376% <= 0.903 milliseconds (cumulative count 5376)
+8.704% <= 1.007 milliseconds (cumulative count 8704)
+14.848% <= 1.103 milliseconds (cumulative count 14848)
+21.228% <= 1.207 milliseconds (cumulative count 21228)
+24.812% <= 1.303 milliseconds (cumulative count 24812)
+28.396% <= 1.407 milliseconds (cumulative count 28396)
+30.188% <= 1.503 milliseconds (cumulative count 30188)
+32.236% <= 1.607 milliseconds (cumulative count 32236)
+35.052% <= 1.703 milliseconds (cumulative count 35052)
+37.612% <= 1.807 milliseconds (cumulative count 37612)
+40.134% <= 1.903 milliseconds (cumulative count 40134)
+41.414% <= 2.007 milliseconds (cumulative count 41414)
+42.950% <= 2.103 milliseconds (cumulative count 42950)
+62.368% <= 3.103 milliseconds (cumulative count 62368)
+71.328% <= 4.103 milliseconds (cumulative count 71328)
+76.448% <= 5.103 milliseconds (cumulative count 76448)
+77.984% <= 6.103 milliseconds (cumulative count 77984)
+95.904% <= 7.103 milliseconds (cumulative count 95904)
+100.000% <= 8.103 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 2565589.75 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        3.174     0.528     2.311     7.047     7.287     7.447
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=100 P=256 / Run 2 ===
+Time: 2026-10-21T15:43:56+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=100 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 100 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100058 requests completed in 0.04 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.607 milliseconds (cumulative count 256)
+50.000% <= 2.871 milliseconds (cumulative count 50138)
+75.000% <= 3.815 milliseconds (cumulative count 75226)
+87.500% <= 4.615 milliseconds (cumulative count 87770)
+93.750% <= 6.639 milliseconds (cumulative count 93856)
+96.875% <= 8.503 milliseconds (cumulative count 96928)
+98.438% <= 8.655 milliseconds (cumulative count 98464)
+99.219% <= 9.047 milliseconds (cumulative count 99232)
+99.609% <= 9.343 milliseconds (cumulative count 99744)
+99.805% <= 9.647 milliseconds (cumulative count 100000)
+100.000% <= 9.647 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.256% <= 0.607 milliseconds (cumulative count 256)
+1.792% <= 0.807 milliseconds (cumulative count 1792)
+3.584% <= 0.903 milliseconds (cumulative count 3584)
+5.120% <= 1.007 milliseconds (cumulative count 5120)
+8.192% <= 1.103 milliseconds (cumulative count 8192)
+11.738% <= 1.207 milliseconds (cumulative count 11738)
+16.602% <= 1.303 milliseconds (cumulative count 16602)
+19.930% <= 1.407 milliseconds (cumulative count 19930)
+21.978% <= 1.503 milliseconds (cumulative count 21978)
+23.002% <= 1.607 milliseconds (cumulative count 23002)
+25.050% <= 1.703 milliseconds (cumulative count 25050)
+26.586% <= 1.807 milliseconds (cumulative count 26586)
+29.658% <= 1.903 milliseconds (cumulative count 29658)
+31.706% <= 2.007 milliseconds (cumulative count 31706)
+32.730% <= 2.103 milliseconds (cumulative count 32730)
+56.282% <= 3.103 milliseconds (cumulative count 56282)
+78.042% <= 4.103 milliseconds (cumulative count 78042)
+89.562% <= 5.103 milliseconds (cumulative count 89562)
+92.832% <= 6.103 milliseconds (cumulative count 92832)
+94.112% <= 7.103 milliseconds (cumulative count 94112)
+95.904% <= 8.103 milliseconds (cumulative count 95904)
+99.232% <= 9.103 milliseconds (cumulative count 99232)
+100.000% <= 10.103 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 2382333.25 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        3.083     0.600     2.871     7.407     9.047     9.647
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 / c=100 P=256 / Run 3 ===
+Time: 2026-10-21T15:43:56+09:00
+Commit: 15510a3ccd66803fddfccbf1890650f2eedcdadd
+Conditions: requests=100000 clients=100 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000 -c 100 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100096 requests completed in 0.04 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.591 milliseconds (cumulative count 256)
+50.000% <= 2.303 milliseconds (cumulative count 50432)
+75.000% <= 3.887 milliseconds (cumulative count 75008)
+87.500% <= 4.903 milliseconds (cumulative count 87552)
+93.750% <= 5.271 milliseconds (cumulative count 93952)
+96.875% <= 5.847 milliseconds (cumulative count 96928)
+98.438% <= 6.119 milliseconds (cumulative count 98464)
+99.219% <= 6.415 milliseconds (cumulative count 99232)
+99.609% <= 9.551 milliseconds (cumulative count 99744)
+99.805% <= 9.687 milliseconds (cumulative count 100000)
+100.000% <= 9.687 milliseconds (cumulative count 100000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.256% <= 0.607 milliseconds (cumulative count 256)
+0.512% <= 0.703 milliseconds (cumulative count 512)
+1.536% <= 0.807 milliseconds (cumulative count 1536)
+2.816% <= 0.903 milliseconds (cumulative count 2816)
+4.864% <= 1.007 milliseconds (cumulative count 4864)
+12.032% <= 1.103 milliseconds (cumulative count 12032)
+16.896% <= 1.207 milliseconds (cumulative count 16896)
+22.272% <= 1.303 milliseconds (cumulative count 22272)
+23.552% <= 1.407 milliseconds (cumulative count 23552)
+26.368% <= 1.503 milliseconds (cumulative count 26368)
+29.184% <= 1.607 milliseconds (cumulative count 29184)
+32.256% <= 1.703 milliseconds (cumulative count 32256)
+35.072% <= 1.807 milliseconds (cumulative count 35072)
+37.888% <= 1.903 milliseconds (cumulative count 37888)
+40.960% <= 2.007 milliseconds (cumulative count 40960)
+43.008% <= 2.103 milliseconds (cumulative count 43008)
+64.512% <= 3.103 milliseconds (cumulative count 64512)
+76.288% <= 4.103 milliseconds (cumulative count 76288)
+90.368% <= 5.103 milliseconds (cumulative count 90368)
+98.208% <= 6.103 milliseconds (cumulative count 98208)
+99.232% <= 7.103 milliseconds (cumulative count 99232)
+100.000% <= 10.103 milliseconds (cumulative count 100000)
+Summary:
+  throughput summary: 2383238.25 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        2.782     0.584     2.303     5.407     6.415     9.687
+Exit code: 0
+
+=== Session 20261021T064304Z-2162 finished ===
+Time: 2026-10-21T15:43:57+09:00
+Completed runs: 44/44
+Session exit code: 0

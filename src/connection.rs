@@ -12,7 +12,8 @@ use crate::db::Db;
 use crate::executor;
 use crate::resp;
 
-const MAX_PENDING_BYTES: usize = 2 * 1024 * 1024; // 2 MiB
+const MAX_PENDING_READ_BYTES: usize = 2 * 1024 * 1024; // 2 MiB
+const MAX_PENDING_WRITE_BYTES: usize = 4 * 1024; // 4 KiB 묶음 전송 기준 (엄격한 메모리 상한 아님)
 const READ_TIMEOUT: Duration = Duration::from_secs(60); // 읽기 타임아웃 60초
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10); // 쓰기 타임아웃 10초
 
@@ -25,6 +26,8 @@ pub async fn handle(
     mut shutdown: watch::Receiver<bool>,
 ) -> io::Result<()> {
     info!("client connected");
+
+    socket.set_nodelay(true)?;
 
     let mut buffer = [0_u8; 4096];
     let mut pending: Vec<u8> = Vec::new();
@@ -39,7 +42,7 @@ pub async fn handle(
         }
 
         // 읽기 한계 측정
-        let read_limit = buffer.len().min(MAX_PENDING_BYTES - pending.len());
+        let read_limit = buffer.len().min(MAX_PENDING_READ_BYTES - pending.len());
         if read_limit == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -90,6 +93,10 @@ pub async fn handle(
         pending.extend_from_slice(&buffer[..bytes_read]);
 
         let mut offset: usize = 0;
+        let mut pending_resp: Vec<u8> = Vec::new();
+        let mut exit_quit: bool = false;
+        let mut pending_error: Option<io::Error> = None;
+
         loop {
             match resp::parse(&pending[offset..]) {
                 Ok(Some((frame, consumed))) => {
@@ -102,15 +109,10 @@ pub async fn handle(
                     let response = match Command::from_frame(frame) {
                         Ok(command) => {
                             if command == Command::Quit {
-                                // 쓰기에 타임 아웃 체크
-                                timeout(WRITE_TIMEOUT, socket.write_all(b"+OK\r\n"))
-                                    .await
-                                    .map_err(|_| {
-                                        io::Error::new(io::ErrorKind::TimedOut, "write timeout")
-                                    })??;
-
-                                info!(reason = "quit", "connection closing");
-                                return Ok(());
+                                // 쓰기 펜딩에 Quit OK 작성
+                                pending_resp.extend_from_slice(b"+OK\r\n");
+                                exit_quit = true;
+                                break;
                             }
                             executor::execute(command, &db)
                         }
@@ -121,37 +123,74 @@ pub async fn handle(
                     };
 
                     // 받은 frame을 encoder로 byte로 변환
-                    let response_bytes = resp::encode(response).map_err(|err| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("failed to encode RESP response: {err:?}"),
-                        )
-                    })?;
+                    let response_bytes = match resp::encode(response) {
+                        Ok(bytes) => bytes,
+                        Err(err) => {
+                            pending_error = Some(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                format!("failed to encode RESP response: {err:?}"),
+                            ));
+                            break;
+                        }
+                    };
 
-                    // 응답 전송
-                    timeout(WRITE_TIMEOUT, socket.write_all(&response_bytes))
-                        .await
-                        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "write timeout"))??;
+                    // 응답이 너무 길어지지 않게 도중에 펜딩 비우기
+                    if pending_resp.len() + response_bytes.len() > MAX_PENDING_WRITE_BYTES {
+                        write_pending(&mut pending_resp, &mut socket).await?;
+                    }
+                    // 응답 펜딩에 응답 작성
+                    pending_resp.extend_from_slice(&response_bytes);
+
+                    // 응답 하나가 맥스 넘어감. -> 펜딩 비우기
+                    if pending_resp.len() >= MAX_PENDING_WRITE_BYTES {
+                        write_pending(&mut pending_resp, &mut socket).await?;
+                    }
                 }
                 Ok(None) => {
                     // 데이터 부족 read에서 데이터를 더 받아와야함
                     break;
                 }
                 Err(err) => {
-                    return Err(io::Error::new(
+                    pending_error = Some(io::Error::new(
                         io::ErrorKind::InvalidData,
                         format!("invalid RESP frame: {err:?}"),
                     ));
+                    break;
                 }
             }
+        }
+
+        // 소켓에 response_pending 읽어서 작성
+        write_pending(&mut pending_resp, &mut socket).await?;
+
+        // 루프 도중에러 떴으면 종료
+        if let Some(error) = pending_error {
+            return Err(error);
+        }
+
+        // Quit 이있으면 루프 종료
+        if exit_quit {
+            info!(reason = "quit", "connection closing");
+            return Ok(());
         }
         pending.drain(..offset);
     }
 }
+async fn write_pending(pending: &mut Vec<u8>, socket: &mut TcpStream) -> io::Result<()> {
+    if pending.is_empty() {
+        return Ok(());
+    }
 
+    timeout(WRITE_TIMEOUT, socket.write_all(pending.as_slice()))
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "write timeout"))??;
+
+    pending.clear();
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
-    use super::{handle, WRITE_TIMEOUT};
+    use super::{handle, write_pending, MAX_PENDING_WRITE_BYTES, WRITE_TIMEOUT};
     use crate::db::Db;
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -432,5 +471,79 @@ mod tests {
         .expect("connection did not close after write timeout")
         .unwrap();
         assert!(received < (32 * 1024 * 1024) as u64);
+    }
+
+    #[tokio::test]
+    async fn flushes_large_and_batched_responses_in_order() {
+        let db = Db::default();
+        let mut request = Vec::new();
+        let mut expected = Vec::new();
+        // 작은 응답의 합산과 기준 초과 단일 응답을 함께 검사한다.
+        for (index, size) in [2000, 2200, MAX_PENDING_WRITE_BYTES + 1, 3]
+            .into_iter()
+            .enumerate()
+        {
+            let key = format!("key{index}");
+            let value = vec![b'a' + index as u8; size];
+            db.set(key.clone(), value.clone());
+            request.extend_from_slice(
+                format!("*2\r\n$3\r\nGET\r\n${}\r\n{key}\r\n", key.len()).as_bytes(),
+            );
+            expected.extend_from_slice(format!("${size}\r\n").as_bytes());
+            expected.extend_from_slice(&value);
+            expected.extend_from_slice(b"\r\n");
+        }
+        request.extend_from_slice(b"*1\r\n$4\r\nQUIT\r\n");
+        expected.extend_from_slice(b"+OK\r\n");
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (mut client, server) = start_connection(db, shutdown_rx).await;
+        client.write_all(&request).await.unwrap();
+        expect_closed(&mut client, server, &expected).await;
+    }
+
+    #[tokio::test]
+    async fn sends_queued_responses_before_protocol_error() {
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (mut client, server) = start_connection(Db::default(), shutdown_rx).await;
+        client
+            .write_all(b"*1\r\n$4\r\nPING\r\n*1\r\n$4\r\nPING\r\n?invalid\r\n")
+            .await
+            .unwrap();
+
+        let mut response = Vec::new();
+        timeout(Duration::from_secs(2), client.read_to_end(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(response, b"+PONG\r\n+PONG\r\n");
+        let error = timeout(Duration::from_secs(2), server)
+            .await
+            .unwrap()
+            .unwrap()
+            .expect_err("invalid RESP must close the connection");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[tokio::test]
+    async fn write_pending_handles_empty_buffer_and_reuses_cleared_buffer() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut pending = Vec::new();
+        write_pending(&mut pending, &mut socket).await.unwrap();
+        pending.extend_from_slice(b"+OK\r\n");
+        write_pending(&mut pending, &mut socket).await.unwrap();
+        assert!(pending.is_empty());
+        pending.extend_from_slice(b"+PONG\r\n");
+        write_pending(&mut pending, &mut socket).await.unwrap();
+        assert!(pending.is_empty());
+        let mut response = [0; 12];
+        timeout(Duration::from_secs(2), client.read_exact(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&response, b"+OK\r\n+PONG\r\n");
     }
 }
