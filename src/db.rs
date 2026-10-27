@@ -2,7 +2,7 @@
 
 #![allow(dead_code)]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -26,7 +26,7 @@ pub enum ExpireError {
 #[derive(Default)]
 struct State {
     entries: HashMap<String, Entry>,
-    expirations: HashSet<String>, //ttl 설정된 키들
+    expirations: BTreeSet<(Instant, String)>, //ttl 설정된 키들
 }
 
 #[derive(Clone, Default)]
@@ -41,8 +41,9 @@ impl Db {
             .get(key)
             .is_some_and(|entry| entry.is_expired(now));
         if expired {
-            state.entries.remove(key);
-            state.expirations.remove(key);
+            if let Some(at) = state.entries.remove(key).and_then(|entry| entry.expires_at) {
+                state.expirations.remove(&(at, key.to_owned()));
+            }
         }
         expired
     }
@@ -58,8 +59,13 @@ impl Db {
             expires_at: None,
         };
         let mut state = self.state.write().expect("db lock poisoned");
-        state.expirations.remove(&key);
-        state.entries.insert(key, entry);
+        if let Some(at) = state
+            .entries
+            .insert(key.clone(), entry)
+            .and_then(|e| e.expires_at)
+        {
+            state.expirations.remove(&(at, key));
+        }
     }
 
     pub fn get(&self, key: &str) -> Option<Vec<u8>> {
@@ -87,16 +93,21 @@ impl Db {
     remove()
         성공 -> Some(값) 반환
         실패 -> None 반환
-    is_some으로 bool로 변환
+    지운 entry에 만료 시각이 있으면 expirations에서 (시각, 키) 제거
+    is_some_and로 만료 전이었는지 확인해 bool로 변환 (만료된 키는 지워도 false)
     세미콜론 X -> 표현식이 바로 반환됨
     */
     pub fn delete(&self, key: &str) -> bool {
         let mut state = self.state.write().expect("db lock poisoned");
-        state.expirations.remove(key);
-        state
-            .entries
-            .remove(key)
-            .is_some_and(|entry| !entry.is_expired(Instant::now()))
+        let removed = state.entries.remove(key);
+
+        // and_then은 self를 값으로 받아서 Option을 소비
+        // 지금처럼 removed에 같은 option을 두번이상 써야하면 as_ref로 빌려와서 마지막에만 소비
+        if let Some(at) = removed.as_ref().and_then(|entry| entry.expires_at) {
+            state.expirations.remove(&(at, key.to_owned()));
+        }
+
+        removed.is_some_and(|entry| !entry.is_expired(Instant::now()))
     }
 
     pub fn purge_expired(&self) -> usize {
@@ -108,13 +119,13 @@ impl Db {
             expirations,
         } = &mut *state;
         let before = entries.len();
-        expirations.retain(|key| {
-            let expired = entries.get(key).is_some_and(|entry| entry.is_expired(now));
-            if expired {
-                entries.remove(key);
+        while let Some((at, _)) = expirations.first() {
+            if *at > now {
+                break;
             }
-            !expired
-        });
+            let (_, key) = expirations.pop_first().unwrap();
+            entries.remove(&key);
+        }
         before - entries.len()
     }
 
@@ -140,8 +151,11 @@ impl Db {
 
         // 수정가능한 get
         if let Some(entry) = state.entries.get_mut(key) {
-            entry.expires_at = Some(expires_at);
-            state.expirations.insert(key.to_owned());
+            let old = entry.expires_at.replace(expires_at);
+            if let Some(old_at) = old {
+                state.expirations.remove(&(old_at, key.to_owned()));
+            }
+            state.expirations.insert((expires_at, key.to_owned()));
             return Ok(true);
         }
 
@@ -180,15 +194,19 @@ impl Db {
 #[cfg(test)]
 pub(crate) fn insert_with_expiration(db: &Db, key: &str, value: &[u8], expires_at: Instant) {
     let mut state = db.state.write().expect("db lock poisoned");
-    state.entries.insert(
+    let previous = state.entries.insert(
         key.to_owned(),
         Entry {
             value: value.to_vec(),
             expires_at: Some(expires_at),
         },
     );
+    // 같은 키를 덮어쓰면 이전 만료 시각의 인덱스 항목을 먼저 지웁니다.
+    if let Some(old_at) = previous.and_then(|entry| entry.expires_at) {
+        state.expirations.remove(&(old_at, key.to_owned()));
+    }
     // 실제 EXPIRE처럼 만료 인덱스에도 등록해야 purge 대상이 됩니다.
-    state.expirations.insert(key.to_owned());
+    state.expirations.insert((expires_at, key.to_owned()));
 }
 
 #[cfg(test)]
@@ -567,7 +585,8 @@ mod tests {
             .read()
             .expect("db lock poisoned")
             .expirations
-            .contains(key)
+            .iter()
+            .any(|(_, indexed)| indexed == key)
     }
 
     #[test]
@@ -662,7 +681,7 @@ mod tests {
         let state = db.state.read().unwrap();
         // 아직 만료되지 않은 TTL 키만 인덱스에 남고, TTL 없는 키는 처음부터 없습니다.
         assert_eq!(state.expirations.len(), 1);
-        assert!(state.expirations.contains("future"));
+        assert!(state.expirations.iter().any(|(_, key)| key == "future"));
         assert_eq!(state.entries.len(), 2);
     }
 
