@@ -2,7 +2,7 @@
 
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -23,23 +23,33 @@ pub enum ExpireError {
     OutOfRange,  // 시간 계산 범위 초과
 }
 
+#[derive(Default)]
+struct State {
+    entries: HashMap<String, Entry>,
+    expirations: HashSet<String>, //ttl 설정된 키들
+}
+
 #[derive(Clone, Default)]
 pub struct Db {
-    entries: Arc<RwLock<HashMap<String, Entry>>>,
+    state: Arc<RwLock<State>>,
 }
 
 impl Db {
-    fn remove_if_expired(entries: &mut HashMap<String, Entry>, key: &str, now: Instant) -> bool {
-        let expired = entries.get(key).is_some_and(|entry| entry.is_expired(now));
+    fn remove_if_expired(state: &mut State, key: &str, now: Instant) -> bool {
+        let expired = state
+            .entries
+            .get(key)
+            .is_some_and(|entry| entry.is_expired(now));
         if expired {
-            entries.remove(key);
+            state.entries.remove(key);
+            state.expirations.remove(key);
         }
         expired
     }
 
     fn lock_and_remove_if_expired(&self, key: &str) {
-        let mut entries = self.entries.write().expect("db lock poisoned");
-        Self::remove_if_expired(&mut entries, key, Instant::now());
+        let mut state = self.state.write().expect("db lock poisoned");
+        Self::remove_if_expired(&mut state, key, Instant::now());
     }
 
     pub fn set(&self, key: String, value: Vec<u8>) {
@@ -47,16 +57,15 @@ impl Db {
             value,
             expires_at: None,
         };
-        self.entries
-            .write()
-            .expect("db lock poisoned")
-            .insert(key, entry);
+        let mut state = self.state.write().expect("db lock poisoned");
+        state.expirations.remove(&key);
+        state.entries.insert(key, entry);
     }
 
     pub fn get(&self, key: &str) -> Option<Vec<u8>> {
         let expired = {
-            let entries = self.entries.read().expect("db lock poisoned");
-            match entries.get(key) {
+            let state = self.state.read().expect("db lock poisoned");
+            match state.entries.get(key) {
                 None => return None,
                 Some(entry) => {
                     if !entry.is_expired(Instant::now()) {
@@ -82,19 +91,30 @@ impl Db {
     세미콜론 X -> 표현식이 바로 반환됨
     */
     pub fn delete(&self, key: &str) -> bool {
-        self.entries
-            .write()
-            .expect("db lock poisoned")
+        let mut state = self.state.write().expect("db lock poisoned");
+        state.expirations.remove(key);
+        state
+            .entries
             .remove(key)
             .is_some_and(|entry| !entry.is_expired(Instant::now()))
     }
 
     pub fn purge_expired(&self) -> usize {
-        let mut entries = self.entries.write().expect("db lock poisoned");
+        let mut state = self.state.write().expect("db lock poisoned");
         let now = Instant::now();
-        let before = entries.len();
 
-        entries.retain(|_, entry| !entry.is_expired(now));
+        let State {
+            entries,
+            expirations,
+        } = &mut *state;
+        let before = entries.len();
+        expirations.retain(|key| {
+            let expired = entries.get(key).is_some_and(|entry| entry.is_expired(now));
+            if expired {
+                entries.remove(key);
+            }
+            !expired
+        });
         before - entries.len()
     }
 
@@ -105,7 +125,7 @@ impl Db {
         }
 
         // 쓰기락 획득
-        let mut entries = self.entries.write().expect("db lock poisoned");
+        let mut state = self.state.write().expect("db lock poisoned");
 
         // 종료시간 변환
         let now = Instant::now();
@@ -113,14 +133,15 @@ impl Db {
             return Err(ExpireError::OutOfRange);
         };
 
-        let expired = Self::remove_if_expired(&mut entries, key, now);
+        let expired = Self::remove_if_expired(&mut state, key, now);
         if expired {
             return Ok(false);
         }
 
         // 수정가능한 get
-        if let Some(entry) = entries.get_mut(key) {
+        if let Some(entry) = state.entries.get_mut(key) {
             entry.expires_at = Some(expires_at);
+            state.expirations.insert(key.to_owned());
             return Ok(true);
         }
 
@@ -129,10 +150,10 @@ impl Db {
 
     pub fn ttl(&self, key: &str) -> i64 {
         let expired = {
-            let entries = self.entries.read().expect("db lock poisoned");
+            let state = self.state.read().expect("db lock poisoned");
             let now = Instant::now();
 
-            match entries.get(key) {
+            match state.entries.get(key) {
                 None => return -2,
                 Some(entry) => match entry.expires_at {
                     None => return -1,
@@ -158,13 +179,16 @@ impl Db {
 // executor 테스트에서도 쓰기 위해 크레이트 안에 공개합니다.
 #[cfg(test)]
 pub(crate) fn insert_with_expiration(db: &Db, key: &str, value: &[u8], expires_at: Instant) {
-    db.entries.write().expect("db lock poisoned").insert(
+    let mut state = db.state.write().expect("db lock poisoned");
+    state.entries.insert(
         key.to_owned(),
         Entry {
             value: value.to_vec(),
             expires_at: Some(expires_at),
         },
     );
+    // 실제 EXPIRE처럼 만료 인덱스에도 등록해야 purge 대상이 됩니다.
+    state.expirations.insert(key.to_owned());
 }
 
 #[cfg(test)]
@@ -205,13 +229,14 @@ mod tests {
         let db = Db::default();
         db.set("key".to_owned(), b"keep".to_vec());
         assert_eq!(db.set_expired_time("key", 3600), Ok(true));
-        let deadline = db.entries.read().unwrap()["key"].expires_at.unwrap();
+        let deadline = db.state.read().unwrap().entries["key"].expires_at.unwrap();
 
         // 실제 호출은 두 관측 시점 사이에서 실행되므로 해당 범위에 있어야 합니다.
         let before = Instant::now();
         let actual = db.ttl("key");
         let after = Instant::now();
-        let entries = db.entries.read().unwrap();
+        let state = db.state.read().unwrap();
+        let entries = &state.entries;
         let entry = &entries["key"];
         let upper = deadline.saturating_duration_since(before).as_secs() as i64 + 1;
         let lower = deadline.saturating_duration_since(after).as_secs() as i64;
@@ -235,7 +260,8 @@ mod tests {
 
         // get()은 삭제 전에도 None을 반환하므로 실제 맵에서 제거됐는지 확인합니다.
         {
-            let entries = db.entries.read().expect("db lock poisoned");
+            let state = db.state.read().expect("db lock poisoned");
+            let entries = &state.entries;
             assert!(!entries.contains_key("expired_a"));
             assert!(!entries.contains_key("expired_b"));
             assert_eq!(entries.len(), 2);
@@ -250,7 +276,12 @@ mod tests {
     fn purge_expired_on_empty_db_returns_zero() {
         let db = Db::default();
         assert_eq!(db.purge_expired(), 0);
-        assert!(db.entries.read().expect("db lock poisoned").is_empty());
+        assert!(db
+            .state
+            .read()
+            .expect("db lock poisoned")
+            .entries
+            .is_empty());
     }
 
     #[test]
@@ -290,7 +321,9 @@ mod tests {
         assert_eq!(db.get("language"), Some(b"rust".to_vec()));
 
         assert_eq!(db.set_expired_time("language", 1), Ok(true));
-        let expires_at = db.entries.read().unwrap()["language"].expires_at.unwrap();
+        let expires_at = db.state.read().unwrap().entries["language"]
+            .expires_at
+            .unwrap();
 
         // DB가 std::time::Instant를 사용하므로 실제 시간을 기다립니다.
         // 대기하는 동안에는 위 블록의 쓰기 락이 해제된 상태입니다.
@@ -302,9 +335,10 @@ mod tests {
         assert_eq!(db.get("language"), None);
         // 만료된 키는 읽는 순간 삭제됩니다.
         assert!(!db
-            .entries
+            .state
             .read()
             .expect("db lock poisoned")
+            .entries
             .contains_key("language"));
     }
 
@@ -319,7 +353,8 @@ mod tests {
             let before = Instant::now();
             assert_eq!(db.set_expired_time("language", seconds), Ok(true));
             let after = Instant::now();
-            let entries = db.entries.read().unwrap();
+            let state = db.state.read().unwrap();
+            let entries = &state.entries;
             let deadline = entries["language"].expires_at.unwrap();
             let duration = Duration::from_secs(seconds as u64);
             assert!(deadline >= before + duration);
@@ -334,7 +369,7 @@ mod tests {
     fn set_expired_time_does_not_create_missing_key() {
         let db = Db::default();
         assert_eq!(db.set_expired_time("missing", 10), Ok(false));
-        assert!(db.entries.read().unwrap().is_empty());
+        assert!(db.state.read().unwrap().entries.is_empty());
     }
 
     #[test]
@@ -346,7 +381,7 @@ mod tests {
         assert_eq!(db.set_expired_time("expired", 3600), Ok(false));
         assert_eq!(db.get("expired"), None);
         // 되살리지 않고 삭제만 합니다.
-        assert!(!db.entries.read().unwrap().contains_key("expired"));
+        assert!(!db.state.read().unwrap().entries.contains_key("expired"));
     }
 
     #[test]
@@ -360,7 +395,7 @@ mod tests {
         );
 
         assert_eq!(db.get("expired"), None);
-        assert!(!db.entries.read().unwrap().contains_key("expired"));
+        assert!(!db.state.read().unwrap().entries.contains_key("expired"));
         assert_eq!(db.purge_expired(), 0);
     }
 
@@ -375,7 +410,7 @@ mod tests {
         );
 
         assert_eq!(db.ttl("expired"), -2);
-        assert!(!db.entries.read().unwrap().contains_key("expired"));
+        assert!(!db.state.read().unwrap().entries.contains_key("expired"));
         assert_eq!(db.purge_expired(), 0);
     }
 
@@ -412,7 +447,8 @@ mod tests {
                     Err(ExpireError::InvalidTime)
                 );
             }
-            let entries = db.entries.read().unwrap();
+            let state = db.state.read().unwrap();
+            let entries = &state.entries;
             assert_eq!(entries.len(), 2);
             assert_eq!(entries["permanent"].expires_at, None);
             assert_eq!(entries["temporary"].expires_at, Some(deadline));
@@ -432,7 +468,8 @@ mod tests {
         let before = Instant::now().checked_add(duration);
         let result = db.set_expired_time("key", i64::MAX);
         let after = Instant::now().checked_add(duration);
-        let entries = db.entries.read().unwrap();
+        let state = db.state.read().unwrap();
+        let entries = &state.entries;
         assert_eq!(entries["key"].value, b"keep");
         match result {
             Err(ExpireError::OutOfRange) => {
@@ -473,7 +510,8 @@ mod tests {
             db.set("language".to_owned(), b"rust".to_vec());
 
             assert_eq!(db.get("language"), Some(b"rust".to_vec()));
-            let entries = db.entries.read().expect("db lock poisoned");
+            let state = db.state.read().expect("db lock poisoned");
+            let entries = &state.entries;
             assert!(entries.get("language").unwrap().expires_at.is_none());
         }
     }
@@ -505,13 +543,19 @@ mod tests {
         // purge 전이라 맵에는 남아 있지만 논리적으로는 없는 키이므로 false입니다.
         assert!(!db.delete("expired"));
         assert!(!db
-            .entries
+            .state
             .read()
             .expect("db lock poisoned")
+            .entries
             .contains_key("expired"));
 
         // 아직 만료되지 않은 키는 기존처럼 삭제에 성공합니다.
         assert!(db.delete("future"));
-        assert!(db.entries.read().expect("db lock poisoned").is_empty());
+        assert!(db
+            .state
+            .read()
+            .expect("db lock poisoned")
+            .entries
+            .is_empty());
     }
 }
