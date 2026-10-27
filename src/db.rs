@@ -558,4 +558,124 @@ mod tests {
             .entries
             .is_empty());
     }
+
+    // ---- 만료 인덱스(expirations) 동기화 테스트 ----
+
+    // 인덱스에 키가 등록돼 있는지 확인합니다.
+    fn in_index(db: &Db, key: &str) -> bool {
+        db.state
+            .read()
+            .expect("db lock poisoned")
+            .expirations
+            .contains(key)
+    }
+
+    #[test]
+    fn set_expired_time_registers_key_in_index() {
+        let db = Db::default();
+        db.set("key".to_owned(), b"value".to_vec());
+        assert!(!in_index(&db, "key"));
+
+        assert_eq!(db.set_expired_time("key", 3600), Ok(true));
+        assert!(in_index(&db, "key"));
+
+        // 같은 키에 EXPIRE를 다시 해도 한 번만 등록됩니다.
+        assert_eq!(db.set_expired_time("key", 7200), Ok(true));
+        assert_eq!(db.state.read().unwrap().expirations.len(), 1);
+    }
+
+    #[test]
+    fn set_expired_time_does_not_register_missing_or_rejected_key() {
+        let db = Db::default();
+        db.set("permanent".to_owned(), b"keep".to_vec());
+
+        assert_eq!(db.set_expired_time("missing", 10), Ok(false));
+        assert_eq!(
+            db.set_expired_time("permanent", 0),
+            Err(ExpireError::InvalidTime)
+        );
+        assert!(db.state.read().unwrap().expirations.is_empty());
+    }
+
+    #[test]
+    fn set_removes_key_from_index() {
+        let db = Db::default();
+        db.set("key".to_owned(), b"old".to_vec());
+        assert_eq!(db.set_expired_time("key", 3600), Ok(true));
+
+        // SET으로 덮어쓰면 TTL이 사라지므로 인덱스에서도 빠져야 합니다.
+        db.set("key".to_owned(), b"new".to_vec());
+        assert!(!in_index(&db, "key"));
+        assert_eq!(db.ttl("key"), -1);
+    }
+
+    #[test]
+    fn delete_removes_key_from_index() {
+        let db = Db::default();
+        let now = Instant::now();
+        insert_with_expiration(&db, "live", b"v", now + Duration::from_secs(3600));
+        insert_with_expiration(&db, "expired", b"v", now - Duration::from_secs(1));
+
+        assert!(db.delete("live"));
+        // 만료된 키는 false를 반환하지만 인덱스에서는 정리돼야 합니다.
+        assert!(!db.delete("expired"));
+        assert!(db.state.read().unwrap().expirations.is_empty());
+    }
+
+    #[test]
+    fn lazy_removal_on_get_and_ttl_removes_key_from_index() {
+        let db = Db::default();
+        let past = Instant::now() - Duration::from_secs(1);
+        insert_with_expiration(&db, "by_get", b"v", past);
+        insert_with_expiration(&db, "by_ttl", b"v", past);
+
+        assert_eq!(db.get("by_get"), None);
+        assert_eq!(db.ttl("by_ttl"), -2);
+        assert!(db.state.read().unwrap().expirations.is_empty());
+    }
+
+    #[test]
+    fn set_expired_time_on_expired_key_removes_it_from_index() {
+        let db = Db::default();
+        insert_with_expiration(
+            &db,
+            "expired",
+            b"v",
+            Instant::now() - Duration::from_secs(1),
+        );
+
+        assert_eq!(db.set_expired_time("expired", 3600), Ok(false));
+        assert!(!in_index(&db, "expired"));
+    }
+
+    #[test]
+    fn purge_expired_removes_only_expired_keys_from_index() {
+        let db = Db::default();
+        let now = Instant::now();
+        insert_with_expiration(&db, "expired_a", b"v", now - Duration::from_secs(2));
+        insert_with_expiration(&db, "expired_b", b"v", now - Duration::from_secs(1));
+        insert_with_expiration(&db, "future", b"v", now + Duration::from_secs(3600));
+        db.set("permanent".to_owned(), b"v".to_vec());
+
+        assert_eq!(db.purge_expired(), 2);
+
+        let state = db.state.read().unwrap();
+        // 아직 만료되지 않은 TTL 키만 인덱스에 남고, TTL 없는 키는 처음부터 없습니다.
+        assert_eq!(state.expirations.len(), 1);
+        assert!(state.expirations.contains("future"));
+        assert_eq!(state.entries.len(), 2);
+    }
+
+    #[test]
+    fn purge_expired_ignores_keys_without_ttl() {
+        let db = Db::default();
+        for i in 0..100 {
+            db.set(format!("permanent_{i}"), b"v".to_vec());
+        }
+
+        // TTL 키가 없으면 인덱스가 비어 있어 아무것도 지우지 않습니다.
+        assert!(db.state.read().unwrap().expirations.is_empty());
+        assert_eq!(db.purge_expired(), 0);
+        assert_eq!(db.state.read().unwrap().entries.len(), 100);
+    }
 }
