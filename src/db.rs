@@ -110,7 +110,7 @@ impl Db {
         removed.is_some_and(|entry| !entry.is_expired(Instant::now()))
     }
 
-    pub fn purge_expired(&self) -> usize {
+    pub fn purge_expired(&self, limit: usize) -> usize {
         let mut state = self.state.write().expect("db lock poisoned");
         let now = Instant::now();
 
@@ -118,15 +118,19 @@ impl Db {
             entries,
             expirations,
         } = &mut *state;
-        let before = entries.len();
+        let mut removed = 0;
         while let Some((at, _)) = expirations.first() {
             if *at > now {
                 break;
             }
+            if removed >= limit {
+                break;
+            }
             let (_, key) = expirations.pop_first().unwrap();
+            removed += 1;
             entries.remove(&key);
         }
-        before - entries.len()
+        removed
     }
 
     pub fn set_expired_time(&self, key: &str, life_time: i64) -> Result<bool, ExpireError> {
