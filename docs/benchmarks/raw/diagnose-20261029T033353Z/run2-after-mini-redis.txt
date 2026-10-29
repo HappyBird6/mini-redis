@@ -1,0 +1,71 @@
+FILE /proc/uptime
+7222.43 54485.62
+FILE /proc/stat
+cpu  154714 1800 101766 5448563 10342 0 92871 0 0 0
+cpu0 15343 1 24558 669189 1337 0 50781 0 0 0
+cpu1 20088 0 12031 679697 1598 0 13244 0 0 0
+cpu2 20113 0 10464 683786 1552 0 6920 0 0 0
+cpu3 21118 1794 11713 678983 1553 0 5900 0 0 0
+cpu4 17955 0 10046 687183 1005 0 4160 0 0 0
+cpu5 20392 0 10296 684347 1312 0 3554 0 0 0
+cpu6 19625 0 11309 682705 1057 0 4274 0 0 0
+cpu7 20075 3 11347 682669 924 0 4036 0 0 0
+intr 39308673 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 3755 1 4 41 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ctxt 76618326
+btime 1793237638
+processes 31997
+procs_running 4
+procs_blocked 0
+softirq 52661354 0 589305 118 38434834 2569 0 8597609 1922956 1273 3112690
+FILE /proc/pressure/cpu
+some avg10=0.78 avg60=0.27 avg300=0.15 total=26952435
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+FILE /proc/net/snmp
+Ip: Forwarding DefaultTTL InReceives InHdrErrors InAddrErrors ForwDatagrams InUnknownProtos InDiscards InDelivers OutRequests OutDiscards OutNoRoutes ReasmTimeout ReasmReqds ReasmOKs ReasmFails FragOKs FragFails FragCreates OutTransmits
+Ip: 1 64 3937923 0 0 0 0 0 3937923 3937738 0 0 0 0 0 0 0 0 0 3937738
+Icmp: InMsgs InErrors InCsumErrors InDestUnreachs InTimeExcds InParmProbs InSrcQuenchs InRedirects InEchos InEchoReps InTimestamps InTimestampReps InAddrMasks InAddrMaskReps OutMsgs OutErrors OutRateLimitGlobal OutRateLimitHost OutDestUnreachs OutTimeExcds OutParmProbs OutSrcQuenchs OutRedirects OutEchos OutEchoReps OutTimestamps OutTimestampReps OutAddrMasks OutAddrMaskReps
+Icmp: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+Tcp: RtoAlgorithm RtoMin RtoMax MaxConn ActiveOpens PassiveOpens AttemptFails EstabResets CurrEstab InSegs OutSegs RetransSegs InErrs OutRsts InCsumErrors
+Tcp: 1 200 120000 -1 0 77 0 0 0 3937923 3937738 0 0 0 0
+Udp: InDatagrams NoPorts InErrors OutDatagrams RcvbufErrors SndbufErrors InCsumErrors IgnoredMulti MemErrors
+Udp: 0 0 0 0 0 0 0 0 0
+UdpLite: InDatagrams NoPorts InErrors OutDatagrams RcvbufErrors SndbufErrors InCsumErrors IgnoredMulti MemErrors
+UdpLite: 0 0 0 0 0 0 0 0 0
+FILE /sys/fs/cgroup/cpu.stat
+usage_usec 133720919
+user_usec 56801562
+system_usec 76919356
+nice_usec 0
+nr_periods 0
+nr_throttled 0
+throttled_usec 0
+nr_bursts 0
+burst_usec 0
+FILE /sys/fs/cgroup/cpu.pressure
+some avg10=0.08 avg60=0.02 avg300=0.00 total=393800
+full avg10=0.00 avg60=0.00 avg300=0.00 total=321311
+FILE /sys/fs/cgroup/memory.events
+low 0
+high 0
+max 0
+oom 0
+oom_kill 0
+oom_group_kill 0
+FILE /proc/1/task/1/schedstat
+39853800 1256100 270
+FILE /proc/1/task/10/schedstat
+13710776300 104306900 155823
+FILE /proc/1/task/11/schedstat
+16039202400 105642400 176851
+FILE /proc/1/task/12/schedstat
+19366772000 129011800 212634
+FILE /proc/1/task/13/schedstat
+15658414400 106795000 172872
+FILE /proc/1/task/14/schedstat
+15841661300 111083500 177800
+FILE /proc/1/task/7/schedstat
+17379413600 105359100 190752
+FILE /proc/1/task/8/schedstat
+18300954700 102640200 200564
+FILE /proc/1/task/9/schedstat
+16985371900 131290600 186348

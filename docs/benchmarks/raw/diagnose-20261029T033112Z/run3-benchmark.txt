@@ -1,0 +1,165 @@
+ 
+PING: rps=0.0 (overall: 0.0) avg_msec=-nan (overall: -nan)
+                                                           
+PING: rps=3557376.0 (overall: 3543203.2) avg_msec=0.165 (overall: 0.165)
+                                                                         
+PING: rps=3446784.0 (overall: 3495090.0) avg_msec=0.173 (overall: 0.169)
+                                                                         
+PING: rps=3429376.0 (overall: 3473214.5) avg_msec=0.171 (overall: 0.170)
+                                                                         
+PING: rps=3490422.5 (overall: 3477525.0) avg_msec=0.171 (overall: 0.170)
+                                                                         
+PING: rps=3494400.0 (overall: 3480894.8) avg_msec=0.172 (overall: 0.170)
+                                                                         
+PING: rps=3429120.0 (overall: 3472277.0) avg_msec=0.174 (overall: 0.171)
+                                                                         
+PING: rps=3478784.0 (overall: 3473205.5) avg_msec=0.173 (overall: 0.171)
+                                                                         
+PING: rps=3460334.8 (overall: 3471592.5) avg_msec=0.171 (overall: 0.171)
+                                                                         
+PING: rps=3474176.0 (overall: 3471879.2) avg_msec=0.174 (overall: 0.172)
+                                                                         
+PING: rps=3494144.0 (overall: 3474103.0) avg_msec=0.170 (overall: 0.171)
+                                                                         
+PING: rps=3501568.0 (overall: 3476597.2) avg_msec=0.172 (overall: 0.171)
+                                                                         
+PING: rps=3506580.8 (overall: 3479075.0) avg_msec=0.173 (overall: 0.172)
+                                                                         
+PING: rps=3536896.0 (overall: 3483521.5) avg_msec=0.169 (overall: 0.171)
+                                                                         
+PING: rps=3491697.5 (overall: 3484107.2) avg_msec=0.172 (overall: 0.171)
+                                                                         
+PING: rps=3501312.0 (overall: 3485253.8) avg_msec=0.172 (overall: 0.171)
+                                                                         
+PING: rps=3483136.0 (overall: 3485121.5) avg_msec=0.173 (overall: 0.172)
+                                                                         
+PING: rps=3517952.0 (overall: 3487051.8) avg_msec=0.171 (overall: 0.171)
+                                                                         
+PING: rps=3489792.0 (overall: 3487204.0) avg_msec=0.172 (overall: 0.171)
+                                                                         
+PING: rps=3514135.8 (overall: 3488626.2) avg_msec=0.170 (overall: 0.171)
+                                                                         
+PING: rps=3451648.0 (overall: 3486778.5) avg_msec=0.174 (overall: 0.172)
+                                                                         
+PING: rps=3476480.0 (overall: 3486288.2) avg_msec=0.173 (overall: 0.172)
+                                                                         
+PING: rps=3461632.0 (overall: 3485168.2) avg_msec=0.174 (overall: 0.172)
+                                                                         
+PING: rps=3405312.0 (overall: 3481698.0) avg_msec=0.174 (overall: 0.172)
+                                                                         
+PING: rps=3438151.5 (overall: 3479877.2) avg_msec=0.173 (overall: 0.172)
+                                                                         
+PING: rps=3411200.0 (overall: 3477132.0) avg_msec=0.174 (overall: 0.172)
+                                                                         
+PING: rps=3439360.0 (overall: 3475680.0) avg_msec=0.170 (overall: 0.172)
+                                                                         
+PING: rps=3526144.0 (overall: 3477548.0) avg_msec=0.169 (overall: 0.172)
+                                                                         
+PING: rps=3407299.0 (overall: 3475031.0) avg_msec=0.174 (overall: 0.172)
+                                                                         
+PING: rps=3505408.0 (overall: 3476077.8) avg_msec=0.172 (overall: 0.172)
+                                                                         
+PING: rps=3515904.0 (overall: 3477404.2) avg_msec=0.171 (overall: 0.172)
+                                                                         
+PING: rps=3498240.0 (overall: 3478076.0) avg_msec=0.172 (overall: 0.172)
+                                                                         
+PING: rps=3502592.0 (overall: 3478841.8) avg_msec=0.171 (overall: 0.172)
+                                                                         
+PING: rps=3459315.0 (overall: 3478248.2) avg_msec=0.174 (overall: 0.172)
+                                                                         
+PING: rps=3477504.0 (overall: 3478226.2) avg_msec=0.173 (overall: 0.172)
+                                                                         
+PING: rps=3440640.0 (overall: 3477153.2) avg_msec=0.175 (overall: 0.172)
+                                                                         
+PING: rps=3492352.0 (overall: 3477575.0) avg_msec=0.171 (overall: 0.172)
+                                                                         
+PING: rps=3499264.0 (overall: 3478161.0) avg_msec=0.171 (overall: 0.172)
+                                                                         
+PING: rps=3467219.2 (overall: 3477872.0) avg_msec=0.172 (overall: 0.172)
+                                                                         
+PING: rps=3460608.0 (overall: 3477429.5) avg_msec=0.173 (overall: 0.172)
+                                                                         
+PING: rps=3443456.0 (overall: 3476580.8) avg_msec=0.175 (overall: 0.172)
+                                                                         
+PING: rps=3496704.0 (overall: 3477071.2) avg_msec=0.172 (overall: 0.172)
+                                                                         
+PING: rps=3458048.0 (overall: 3476618.8) avg_msec=0.174 (overall: 0.172)
+                                                                         
+PING: rps=3455490.2 (overall: 3476125.5) avg_msec=0.173 (overall: 0.172)
+                                                                         
+PING: rps=3504640.0 (overall: 3476773.2) avg_msec=0.171 (overall: 0.172)
+                                                                         
+PING: rps=3591424.0 (overall: 3479319.0) avg_msec=0.166 (overall: 0.172)
+                                                                         
+PING: rps=3522048.0 (overall: 3480247.2) avg_msec=0.170 (overall: 0.172)
+                                                                         
+PING: rps=3461864.8 (overall: 3479855.2) avg_msec=0.174 (overall: 0.172)
+                                                                         
+PING: rps=3489536.0 (overall: 3480056.8) avg_msec=0.173 (overall: 0.172)
+                                                                         
+PING: rps=3496192.0 (overall: 3480385.8) avg_msec=0.173 (overall: 0.172)
+                                                                         
+PING: rps=3567872.0 (overall: 3482134.2) avg_msec=0.165 (overall: 0.172)
+                                                                         
+PING: rps=3500288.0 (overall: 3482490.0) avg_msec=0.169 (overall: 0.172)
+                                                                         
+PING: rps=3462374.8 (overall: 3482101.8) avg_msec=0.174 (overall: 0.172)
+                                                                         
+PING: rps=3523584.0 (overall: 3482883.8) avg_msec=0.170 (overall: 0.172)
+                                                                         
+PING: rps=3497216.0 (overall: 3483149.0) avg_msec=0.172 (overall: 0.172)
+                                                                         
+PING: rps=3393536.0 (overall: 3481520.8) avg_msec=0.178 (overall: 0.172)
+                                                                         
+PING: rps=3457792.0 (overall: 3481097.5) avg_msec=0.174 (overall: 0.172)
+                                                                         
+PING: rps=3502661.5 (overall: 3481477.0) avg_msec=0.171 (overall: 0.172)
+                                                                         
+====== PING ======
+  50000000 requests completed in 14.36 seconds
+  10 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+
+Latency by percentile distribution:
+0.000% <= 0.023 milliseconds (cumulative count 112896)
+50.000% <= 0.183 milliseconds (cumulative count 28139776)
+75.000% <= 0.207 milliseconds (cumulative count 39413632)
+87.500% <= 0.231 milliseconds (cumulative count 44922112)
+93.750% <= 0.247 milliseconds (cumulative count 46978624)
+96.875% <= 0.279 milliseconds (cumulative count 48682688)
+98.438% <= 0.311 milliseconds (cumulative count 49318720)
+99.219% <= 0.351 milliseconds (cumulative count 49633216)
+99.609% <= 0.407 milliseconds (cumulative count 49804800)
+99.805% <= 0.487 milliseconds (cumulative count 49906048)
+99.902% <= 0.543 milliseconds (cumulative count 49951232)
+99.951% <= 0.599 milliseconds (cumulative count 49976832)
+99.976% <= 0.647 milliseconds (cumulative count 49988480)
+99.988% <= 0.679 milliseconds (cumulative count 49993664)
+99.994% <= 0.711 milliseconds (cumulative count 49996928)
+99.997% <= 0.727 milliseconds (cumulative count 49997888)
+99.998% <= 0.767 milliseconds (cumulative count 49998720)
+99.999% <= 0.799 milliseconds (cumulative count 49999168)
+100.000% <= 0.871 milliseconds (cumulative count 49999232)
+100.000% <= 0.887 milliseconds (cumulative count 49999296)
+100.000% <= 0.975 milliseconds (cumulative count 49999360)
+100.000% <= 0.975 milliseconds (cumulative count 49999360)
+
+Cumulative distribution of latencies:
+13.000% <= 0.103 milliseconds (cumulative count 6499712)
+78.828% <= 0.207 milliseconds (cumulative count 39413632)
+98.412% <= 0.303 milliseconds (cumulative count 49205568)
+99.611% <= 0.407 milliseconds (cumulative count 49804800)
+99.840% <= 0.503 milliseconds (cumulative count 49919296)
+99.960% <= 0.607 milliseconds (cumulative count 49979456)
+99.993% <= 0.703 milliseconds (cumulative count 49996032)
+100.000% <= 0.807 milliseconds (cumulative count 49999168)
+100.000% <= 0.903 milliseconds (cumulative count 49999296)
+100.000% <= 1.007 milliseconds (cumulative count 49999360)
+
+Summary:
+  throughput summary: 3481167.00 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        0.172     0.016     0.183     0.255     0.335     0.975

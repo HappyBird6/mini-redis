@@ -1,0 +1,344 @@
+
+=== Benchmark session 20261029T031152Z-1038 ===
+Time: 2026-10-29T12:11:52+09:00
+Commit: 5651d3deb2ceb04b11919399bf0604354f4a81a6
+Protocol: 2
+Command: PING
+Measured requests per run: 100000000
+Warmup requests per run: 1000000
+Warmup: 1 per condition
+Measured runs: 3 per condition
+Minimum measured seconds: 5
+Conditions (clients pipeline): 100 256
+Target: stop server, build release, recreate server, then benchmark
+Commit is the working checkout; uncommitted source changes are included in the build.
+
+Working tree at session start:
+?? docs/benchmarks/benchmark-baseline-summary.md
+?? docs/benchmarks/raw/20261029T030745Z-271-5651d3d.txt
+?? docs/benchmarks/raw/20261029T030901Z-674-5651d3d.txt
+?? docs/benchmarks/raw/20261029T031004Z-856-5651d3d.txt
+?? docs/benchmarks/raw/20261029T031152Z-1038-5651d3d.txt
+
+Uncommitted tracked changes:
+
+Docker version:
+29.8.0
+
+Docker VM resources (CPUs / bytes of memory):
+8 / 8291737600
+
+Stop existing server (active connections will close):
+ Container mini-redis-mini-redis-1 Stopping 
+ Container mini-redis-mini-redis-1 Stopped 
+
+Build release binary:
+ Container mini-redis-mini-redis-run-64cfb40b62ab Creating 
+ Container mini-redis-mini-redis-run-64cfb40b62ab Created 
+    Finished `release` profile [optimized] target(s) in 0.26s
+
+Recreate release server:
+ Container mini-redis-mini-redis-1 Recreate 
+ Container mini-redis-mini-redis-1 Recreated 
+ Container mini-redis-mini-redis-1 Starting 
+ Container mini-redis-mini-redis-1 Started 
+
+Start benchmark tools container:
+ Container mini-redis-official-redis-1 Running 
+
+Actual server command: /app/target/release/mini-redis 
+
+Server state:
+Running=true StartedAt=2026-10-29T03:12:03.912643014Z Image=sha256:139278b4c5f66ac7214f8c80ea574769710c1c93270f9d2aa110f5b0b2d866df
+
+Container resource limits (0 means no explicit limit):
+NanoCpus=0 CpuQuota=0 CpuPeriod=0 CpusetCpus= Memory=0 MemorySwap=0
+
+Runtime server settings:
+MINI_REDIS_ADDRESS=0.0.0.0:6379
+MINI_REDIS_MAX_CONNECTIONS=100
+RUST_LOG=<unset>
+
+Logging configuration source (checkout, not embedded binary metadata):
+use tracing::Level;
+
+pub fn init() {
+    /*
+    DEBUG 레벨 이상의 로그를 출력
+     */
+    tracing_subscriber::fmt()
+        .with_max_level(Level::DEBUG)
+        .init();
+}
+
+Rust toolchain available in container (not proof of build version):
+rustc 1.94.0 (4a4ef493e 2026-03-02)
+
+Benchmark tool version:
+redis-benchmark 7.4.12
+
+Readiness response: PONG
+
+=== Session 20261029T031152Z-1038 / c=100 P=256 / Run warmup ===
+Time: 2026-10-29T12:12:08+09:00
+Commit: 5651d3deb2ceb04b11919399bf0604354f4a81a6
+Conditions: requests=1000000 clients=100 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 1000000 -c 100 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  1000192 requests completed in 0.16 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.919 milliseconds (cumulative count 256)
+50.000% <= 2.023 milliseconds (cumulative count 510528)
+75.000% <= 2.167 milliseconds (cumulative count 756288)
+87.500% <= 2.311 milliseconds (cumulative count 876352)
+93.750% <= 2.479 milliseconds (cumulative count 937792)
+96.875% <= 2.719 milliseconds (cumulative count 970560)
+98.438% <= 2.959 milliseconds (cumulative count 984640)
+99.219% <= 4.967 milliseconds (cumulative count 992320)
+99.609% <= 5.279 milliseconds (cumulative count 996160)
+99.805% <= 5.495 milliseconds (cumulative count 998464)
+99.902% <= 5.599 milliseconds (cumulative count 999232)
+99.951% <= 5.711 milliseconds (cumulative count 999744)
+99.976% <= 5.719 milliseconds (cumulative count 1000000)
+100.000% <= 5.719 milliseconds (cumulative count 1000000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.307% <= 1.007 milliseconds (cumulative count 3072)
+0.544% <= 1.103 milliseconds (cumulative count 5440)
+0.595% <= 1.207 milliseconds (cumulative count 5952)
+0.698% <= 1.303 milliseconds (cumulative count 6976)
+0.877% <= 1.407 milliseconds (cumulative count 8768)
+1.491% <= 1.503 milliseconds (cumulative count 14912)
+3.590% <= 1.607 milliseconds (cumulative count 35904)
+7.891% <= 1.703 milliseconds (cumulative count 78912)
+17.952% <= 1.807 milliseconds (cumulative count 179520)
+32.058% <= 1.903 milliseconds (cumulative count 320576)
+48.390% <= 2.007 milliseconds (cumulative count 483904)
+65.798% <= 2.103 milliseconds (cumulative count 657984)
+98.566% <= 3.103 milliseconds (cumulative count 985664)
+98.643% <= 4.103 milliseconds (cumulative count 986432)
+99.386% <= 5.103 milliseconds (cumulative count 993856)
+100.000% <= 6.103 milliseconds (cumulative count 1000000)
+Summary:
+  throughput summary: 6330329.00 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        2.063     0.912     2.023     2.543     4.775     5.719
+Exit code: 0
+
+=== Session 20261029T031152Z-1038 / c=100 P=256 / Run 1 ===
+Time: 2026-10-29T12:12:09+09:00
+Commit: 5651d3deb2ceb04b11919399bf0604354f4a81a6
+Conditions: requests=100000000 clients=100 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000000 -c 100 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000000 requests completed in 15.34 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.111 milliseconds (cumulative count 256)
+50.000% <= 1.999 milliseconds (cumulative count 51695616)
+75.000% <= 2.111 milliseconds (cumulative count 75502592)
+87.500% <= 2.207 milliseconds (cumulative count 87652352)
+93.750% <= 2.311 milliseconds (cumulative count 94008832)
+96.875% <= 2.415 milliseconds (cumulative count 96951296)
+98.438% <= 2.527 milliseconds (cumulative count 98491904)
+99.219% <= 2.639 milliseconds (cumulative count 99219712)
+99.609% <= 2.775 milliseconds (cumulative count 99613696)
+99.805% <= 3.039 milliseconds (cumulative count 99807232)
+99.902% <= 3.407 milliseconds (cumulative count 99904512)
+99.951% <= 3.623 milliseconds (cumulative count 99952128)
+99.976% <= 3.887 milliseconds (cumulative count 99975680)
+99.988% <= 4.047 milliseconds (cumulative count 99988480)
+99.994% <= 4.159 milliseconds (cumulative count 99994112)
+99.997% <= 4.255 milliseconds (cumulative count 99997184)
+99.998% <= 4.383 milliseconds (cumulative count 99998720)
+99.999% <= 4.479 milliseconds (cumulative count 99999488)
+100.000% <= 4.719 milliseconds (cumulative count 99999744)
+100.000% <= 4.831 milliseconds (cumulative count 100000000)
+100.000% <= 4.831 milliseconds (cumulative count 100000000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.002% <= 0.207 milliseconds (cumulative count 2048)
+0.007% <= 0.303 milliseconds (cumulative count 6656)
+0.012% <= 0.407 milliseconds (cumulative count 12288)
+0.015% <= 0.503 milliseconds (cumulative count 15360)
+0.016% <= 0.703 milliseconds (cumulative count 15616)
+0.017% <= 0.807 milliseconds (cumulative count 16640)
+0.019% <= 0.903 milliseconds (cumulative count 19200)
+0.022% <= 1.007 milliseconds (cumulative count 21504)
+0.023% <= 1.103 milliseconds (cumulative count 22528)
+0.025% <= 1.207 milliseconds (cumulative count 24832)
+0.030% <= 1.303 milliseconds (cumulative count 30464)
+0.045% <= 1.407 milliseconds (cumulative count 44544)
+0.086% <= 1.503 milliseconds (cumulative count 86272)
+0.433% <= 1.607 milliseconds (cumulative count 433152)
+2.591% <= 1.703 milliseconds (cumulative count 2590720)
+11.314% <= 1.807 milliseconds (cumulative count 11314176)
+28.593% <= 1.903 milliseconds (cumulative count 28593408)
+53.622% <= 2.007 milliseconds (cumulative count 53622016)
+74.110% <= 2.103 milliseconds (cumulative count 74109696)
+99.835% <= 3.103 milliseconds (cumulative count 99835136)
+99.992% <= 4.103 milliseconds (cumulative count 99992320)
+100.000% <= 5.103 milliseconds (cumulative count 100000000)
+Summary:
+  throughput summary: 6519754.50 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        2.012     0.104     1.999     2.343     2.599     4.831
+Exit code: 0
+
+=== Session 20261029T031152Z-1038 / c=100 P=256 / Run 2 ===
+Time: 2026-10-29T12:12:25+09:00
+Commit: 5651d3deb2ceb04b11919399bf0604354f4a81a6
+Conditions: requests=100000000 clients=100 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000000 -c 100 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000000 requests completed in 15.11 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.207 milliseconds (cumulative count 512)
+50.000% <= 1.967 milliseconds (cumulative count 50198272)
+75.000% <= 2.079 milliseconds (cumulative count 75616000)
+87.500% <= 2.175 milliseconds (cumulative count 88094720)
+93.750% <= 2.263 milliseconds (cumulative count 93823232)
+96.875% <= 2.359 milliseconds (cumulative count 96883200)
+98.438% <= 2.471 milliseconds (cumulative count 98507008)
+99.219% <= 2.575 milliseconds (cumulative count 99248640)
+99.609% <= 2.687 milliseconds (cumulative count 99612160)
+99.805% <= 2.815 milliseconds (cumulative count 99806208)
+99.902% <= 2.943 milliseconds (cumulative count 99902720)
+99.951% <= 3.087 milliseconds (cumulative count 99952896)
+99.976% <= 3.199 milliseconds (cumulative count 99975936)
+99.988% <= 3.327 milliseconds (cumulative count 99988480)
+99.994% <= 3.631 milliseconds (cumulative count 99994112)
+99.997% <= 3.871 milliseconds (cumulative count 99997184)
+99.998% <= 4.135 milliseconds (cumulative count 99998976)
+99.999% <= 4.439 milliseconds (cumulative count 99999488)
+100.000% <= 4.503 milliseconds (cumulative count 99999744)
+100.000% <= 5.391 milliseconds (cumulative count 100000000)
+100.000% <= 5.391 milliseconds (cumulative count 100000000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.001% <= 0.207 milliseconds (cumulative count 512)
+0.001% <= 0.503 milliseconds (cumulative count 768)
+0.001% <= 0.607 milliseconds (cumulative count 1024)
+0.002% <= 0.703 milliseconds (cumulative count 2304)
+0.005% <= 0.807 milliseconds (cumulative count 5120)
+0.007% <= 0.903 milliseconds (cumulative count 7168)
+0.011% <= 1.007 milliseconds (cumulative count 11264)
+0.013% <= 1.103 milliseconds (cumulative count 13312)
+0.016% <= 1.207 milliseconds (cumulative count 15872)
+0.018% <= 1.303 milliseconds (cumulative count 17920)
+0.027% <= 1.407 milliseconds (cumulative count 26624)
+0.080% <= 1.503 milliseconds (cumulative count 80384)
+0.607% <= 1.607 milliseconds (cumulative count 607232)
+3.413% <= 1.703 milliseconds (cumulative count 3413248)
+13.951% <= 1.807 milliseconds (cumulative count 13950720)
+33.613% <= 1.903 milliseconds (cumulative count 33613312)
+60.311% <= 2.007 milliseconds (cumulative count 60311296)
+79.571% <= 2.103 milliseconds (cumulative count 79571200)
+99.957% <= 3.103 milliseconds (cumulative count 99956736)
+99.998% <= 4.103 milliseconds (cumulative count 99998464)
+100.000% <= 5.103 milliseconds (cumulative count 99999744)
+100.000% <= 6.103 milliseconds (cumulative count 100000000)
+Summary:
+  throughput summary: 6619448.00 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        1.983     0.200     1.967     2.295     2.535     5.391
+Exit code: 0
+
+=== Session 20261029T031152Z-1038 / c=100 P=256 / Run 3 ===
+Time: 2026-10-29T12:12:41+09:00
+Commit: 5651d3deb2ceb04b11919399bf0604354f4a81a6
+Conditions: requests=100000000 clients=100 pipeline=256
+Command: docker compose exec -T official-redis redis-benchmark -h mini-redis -p 6379 -n 100000000 -c 100 -P 256 PING 
+WARNING: Could not fetch server CONFIG
+====== PING ======
+  100000000 requests completed in 15.39 seconds
+  100 parallel clients
+  14 bytes payload
+  keep alive: 1
+  multi-thread: no
+Latency by percentile distribution:
+0.000% <= 0.175 milliseconds (cumulative count 256)
+50.000% <= 1.983 milliseconds (cumulative count 50084864)
+75.000% <= 2.103 milliseconds (cumulative count 75762432)
+87.500% <= 2.207 milliseconds (cumulative count 87924224)
+93.750% <= 2.319 milliseconds (cumulative count 94053376)
+96.875% <= 2.431 milliseconds (cumulative count 96936704)
+98.438% <= 2.575 milliseconds (cumulative count 98483200)
+99.219% <= 2.775 milliseconds (cumulative count 99234816)
+99.609% <= 3.071 milliseconds (cumulative count 99613184)
+99.805% <= 3.823 milliseconds (cumulative count 99805952)
+99.902% <= 11.551 milliseconds (cumulative count 99902464)
+99.951% <= 13.023 milliseconds (cumulative count 99951360)
+99.976% <= 15.367 milliseconds (cumulative count 99975680)
+99.988% <= 17.311 milliseconds (cumulative count 99987968)
+99.994% <= 19.183 milliseconds (cumulative count 99994112)
+99.997% <= 19.311 milliseconds (cumulative count 99997440)
+99.998% <= 19.343 milliseconds (cumulative count 99999488)
+100.000% <= 19.359 milliseconds (cumulative count 99999744)
+100.000% <= 32.015 milliseconds (cumulative count 100000000)
+100.000% <= 32.015 milliseconds (cumulative count 100000000)
+Cumulative distribution of latencies:
+0.000% <= 0.103 milliseconds (cumulative count 0)
+0.001% <= 0.207 milliseconds (cumulative count 768)
+0.002% <= 0.303 milliseconds (cumulative count 2048)
+0.003% <= 0.503 milliseconds (cumulative count 2560)
+0.003% <= 0.607 milliseconds (cumulative count 3328)
+0.004% <= 0.703 milliseconds (cumulative count 4352)
+0.008% <= 0.807 milliseconds (cumulative count 7680)
+0.011% <= 0.903 milliseconds (cumulative count 10752)
+0.016% <= 1.007 milliseconds (cumulative count 15616)
+0.022% <= 1.103 milliseconds (cumulative count 22272)
+0.030% <= 1.207 milliseconds (cumulative count 29696)
+0.035% <= 1.303 milliseconds (cumulative count 35072)
+0.048% <= 1.407 milliseconds (cumulative count 47616)
+0.100% <= 1.503 milliseconds (cumulative count 100352)
+0.601% <= 1.607 milliseconds (cumulative count 601344)
+3.088% <= 1.703 milliseconds (cumulative count 3087616)
+12.037% <= 1.807 milliseconds (cumulative count 12036608)
+30.155% <= 1.903 milliseconds (cumulative count 30154752)
+56.009% <= 2.007 milliseconds (cumulative count 56009472)
+75.762% <= 2.103 milliseconds (cumulative count 75762432)
+99.639% <= 3.103 milliseconds (cumulative count 99639296)
+99.832% <= 4.103 milliseconds (cumulative count 99832320)
+99.874% <= 5.103 milliseconds (cumulative count 99873792)
+99.882% <= 6.103 milliseconds (cumulative count 99882496)
+99.883% <= 10.103 milliseconds (cumulative count 99882752)
+99.885% <= 11.103 milliseconds (cumulative count 99884544)
+99.904% <= 12.103 milliseconds (cumulative count 99904000)
+99.957% <= 13.103 milliseconds (cumulative count 99956736)
+99.964% <= 14.103 milliseconds (cumulative count 99964416)
+99.973% <= 15.103 milliseconds (cumulative count 99972864)
+99.982% <= 16.103 milliseconds (cumulative count 99982080)
+99.987% <= 17.103 milliseconds (cumulative count 99986944)
+99.989% <= 18.111 milliseconds (cumulative count 99988992)
+99.993% <= 19.103 milliseconds (cumulative count 99992832)
+100.000% <= 20.111 milliseconds (cumulative count 99999744)
+100.000% <= 32.111 milliseconds (cumulative count 100000000)
+Summary:
+  throughput summary: 6498148.00 requests per second
+  latency summary (msec):
+          avg       min       p50       p95       p99       max
+        2.020     0.168     1.983     2.351     2.695    32.015
+Exit code: 0
+
+=== Session 20261029T031152Z-1038 finished ===
+Time: 2026-10-29T12:12:57+09:00
+Completed runs: 4/4
+Session exit code: 0
