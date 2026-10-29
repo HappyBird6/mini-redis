@@ -15,12 +15,7 @@ pub fn execute(command: Command, db: &Db) -> Frame {
             None => Frame::Null,
         },
         Command::Del { keys } => {
-            let mut count = 0;
-            for key in &keys {
-                if db.delete(key) {
-                    count += 1;
-                }
-            }
+            let count = db.delete(&keys) as i64;
             //redis 삭제는 삭제한 갯수를 리턴한다고 함
             Frame::Integer(count)
         }

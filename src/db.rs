@@ -89,16 +89,17 @@ impl Db {
     }
 
     /*
-    write() 함수로 쓰기 락 획득(delete는 값을 변화시키는거라 쓰기락을 얻어야 됨)
+    이미 쓰기 락을 잡은 State에서 키 하나를 지우는 내부 도우미 (락은 호출하는 쪽이 잡음)
+    State가 비공개 타입이라 pub 없이 db 모듈 안에서만 사용
     remove()
         성공 -> Some(값) 반환
         실패 -> None 반환
     지운 entry에 만료 시각이 있으면 expirations에서 (시각, 키) 제거
-    is_some_and로 만료 전이었는지 확인해 bool로 변환 (만료된 키는 지워도 false)
+    is_some_and로 now 기준 만료 전이었는지 확인해 bool로 변환 (만료된 키는 지워도 false)
+    now를 인자로 받아 같은 DEL 안의 키들을 같은 시각 기준으로 판정
     세미콜론 X -> 표현식이 바로 반환됨
     */
-    pub fn delete(&self, key: &str) -> bool {
-        let mut state = self.state.write().expect("db lock poisoned");
+    fn delete_with_locked_state(state: &mut State, key: &str, now: Instant) -> bool {
         let removed = state.entries.remove(key);
 
         // and_then은 self를 값으로 받아서 Option을 소비
@@ -107,7 +108,29 @@ impl Db {
             state.expirations.remove(&(at, key.to_owned()));
         }
 
-        removed.is_some_and(|entry| !entry.is_expired(Instant::now()))
+        removed.is_some_and(|entry| !entry.is_expired(now))
+    }
+
+    /*
+    DEL k1 k2 ... 처리: 여러 키를 지우고 실제로 지운(만료 전이던) 키 개수를 반환
+    쓰기 락을 한 번만 잡고 모든 키를 지움
+        키마다 락을 잡았다 놓으면 그 사이에 다른 요청이 끼어들어
+        "k1만 지워지고 k2는 남은" 중간 상태를 읽을 수 있음
+        Redis처럼 명령 하나는 다 끝난 상태로만 보이게 함
+    같은 키가 두 번 오면 두 번째는 이미 없는 키라 한 번만 셈 (DEL a a -> 1)
+    반환은 개수라 usize, RESP 정수(i64) 변환은 executor에서 함
+    */
+    pub fn delete(&self, keys: &[String]) -> usize {
+        let mut state = self.state.write().expect("db lock poisoned");
+        let mut deleted: usize = 0;
+        let now = Instant::now();
+        for key in keys {
+            let success = Self::delete_with_locked_state(&mut state, key, now);
+            if success {
+                deleted += 1;
+            }
+        }
+        deleted
     }
 
     pub fn purge_expired(&self, limit: usize) -> usize {
@@ -216,6 +239,8 @@ pub(crate) fn insert_with_expiration(db: &Db, key: &str, value: &[u8], expires_a
 #[cfg(test)]
 mod tests {
     use super::{insert_with_expiration, Db, ExpireError};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
     #[test]
@@ -550,9 +575,9 @@ mod tests {
         let db = Db::default();
         db.set("language".to_owned(), b"rust".to_vec());
 
-        assert!(db.delete("language"));
+        assert_eq!(db.delete(&keys(&["language"])), 1);
         assert_eq!(db.get("language"), None);
-        assert!(!db.delete("language"));
+        assert_eq!(db.delete(&keys(&["language"])), 0);
     }
 
     #[test]
@@ -562,8 +587,8 @@ mod tests {
         insert_with_expiration(&db, "expired", b"old", now - Duration::from_secs(1));
         insert_with_expiration(&db, "future", b"keep", now + Duration::from_secs(3600));
 
-        // purge 전이라 맵에는 남아 있지만 논리적으로는 없는 키이므로 false입니다.
-        assert!(!db.delete("expired"));
+        // purge 전이라 맵에는 남아 있지만 논리적으로는 없는 키이므로 개수에 세지 않습니다.
+        assert_eq!(db.delete(&keys(&["expired"])), 0);
         assert!(!db
             .state
             .read()
@@ -572,7 +597,7 @@ mod tests {
             .contains_key("expired"));
 
         // 아직 만료되지 않은 키는 기존처럼 삭제에 성공합니다.
-        assert!(db.delete("future"));
+        assert_eq!(db.delete(&keys(&["future"])), 1);
         assert!(db
             .state
             .read()
@@ -639,9 +664,9 @@ mod tests {
         insert_with_expiration(&db, "live", b"v", now + Duration::from_secs(3600));
         insert_with_expiration(&db, "expired", b"v", now - Duration::from_secs(1));
 
-        assert!(db.delete("live"));
-        // 만료된 키는 false를 반환하지만 인덱스에서는 정리돼야 합니다.
-        assert!(!db.delete("expired"));
+        assert_eq!(db.delete(&keys(&["live"])), 1);
+        // 만료된 키는 개수에 세지 않지만 인덱스에서는 정리돼야 합니다.
+        assert_eq!(db.delete(&keys(&["expired"])), 0);
         assert!(db.state.read().unwrap().expirations.is_empty());
     }
 
@@ -700,6 +725,85 @@ mod tests {
         assert!(db.state.read().unwrap().expirations.is_empty());
         assert_eq!(db.purge_expired(usize::MAX), 0);
         assert_eq!(db.state.read().unwrap().entries.len(), 100);
+    }
+
+    // ---- 여러 키 삭제(DEL k1 k2 ...) 테스트 ----
+
+    fn keys(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    #[test]
+    fn delete_removes_multiple_keys_and_counts_only_live_ones() {
+        let db = Db::default();
+        let now = Instant::now();
+        db.set("a".to_owned(), b"1".to_vec());
+        insert_with_expiration(&db, "b", b"2", now + Duration::from_secs(3600));
+        insert_with_expiration(&db, "expired", b"3", now - Duration::from_secs(1));
+        db.set("other".to_owned(), b"keep".to_vec());
+
+        // 없는 키와 만료된 키는 개수에 세지 않습니다.
+        assert_eq!(db.delete(&keys(&["a", "missing", "b", "expired"])), 2);
+
+        let state = db.state.read().unwrap();
+        assert_eq!(state.entries.len(), 1);
+        assert!(state.entries.contains_key("other"));
+        // TTL이 있던 키는 살아 있었든 만료됐든 인덱스에서 빠져야 합니다.
+        assert!(state.expirations.is_empty());
+    }
+
+    #[test]
+    fn delete_counts_duplicate_key_once() {
+        let db = Db::default();
+        db.set("a".to_owned(), b"1".to_vec());
+
+        // Redis처럼 첫 번째에서 지워지고 두 번째는 이미 없는 키로 봅니다.
+        assert_eq!(db.delete(&keys(&["a", "a"])), 1);
+        assert_eq!(db.get("a"), None);
+    }
+
+    #[test]
+    fn delete_with_empty_key_list_removes_nothing() {
+        let db = Db::default();
+        db.set("a".to_owned(), b"1".to_vec());
+
+        assert_eq!(db.delete(&[]), 0);
+        assert_eq!(db.get("a"), Some(b"1".to_vec()));
+    }
+
+    #[test]
+    fn delete_of_multiple_keys_is_not_observed_half_done() {
+        const ROUNDS: usize = 20_000;
+        let db = Db::default();
+        let done = Arc::new(AtomicBool::new(false));
+
+        // a를 먼저, b를 나중에 SET하므로 정상 상태에서는 "a 없음 + b 있음"이 나올 수 없습니다.
+        // DEL a b가 키마다 따로 락을 잡으면 a만 지워진 순간에 그 상태가 보입니다.
+        let writer = {
+            let db = db.clone();
+            let done = Arc::clone(&done);
+            std::thread::spawn(move || {
+                let targets = keys(&["a", "b"]);
+                for _ in 0..ROUNDS {
+                    db.set("a".to_owned(), b"1".to_vec());
+                    db.set("b".to_owned(), b"2".to_vec());
+                    db.delete(&targets);
+                }
+                done.store(true, Ordering::Release);
+            })
+        };
+
+        let mut half_deleted = 0_usize;
+        while !done.load(Ordering::Acquire) {
+            // 두 키를 한 번의 읽기 락으로 확인해야 읽는 쪽의 경쟁이 섞이지 않습니다.
+            let state = db.state.read().unwrap();
+            if !state.entries.contains_key("a") && state.entries.contains_key("b") {
+                half_deleted += 1;
+            }
+        }
+        writer.join().unwrap();
+
+        assert_eq!(half_deleted, 0, "DEL 중간 상태가 {half_deleted}번 관찰됨");
     }
 
     // ---- purge 한 번에 지우는 개수 상한(limit) 테스트 ----
