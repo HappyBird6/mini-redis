@@ -7,6 +7,49 @@ if [ "$#" -ne 0 ]; then
   exit 1
 fi
 
+# Docker를 건드리기 전에 설정을 검증한다. redis-benchmark의 정수 범위 안으로 제한한다.
+positive_integer() {
+  local name=$1 value=$2
+  if [[ ! "$value" =~ ^[1-9][0-9]{0,9}$ ]] || (( value > 2147483647 )); then
+    printf '%s는 1~2147483647 사이의 정수여야 합니다.\n' "$name" >&2
+    exit 1
+  fi
+}
+requests=${BENCH_REQUESTS-50000000}
+warmup_requests=${BENCH_WARMUP_REQUESTS-1000000}
+measured_runs=${BENCH_RUNS-3}
+min_seconds=${BENCH_MIN_SECONDS-5}
+positive_integer BENCH_REQUESTS "$requests"
+positive_integer BENCH_WARMUP_REQUESTS "$warmup_requests"
+positive_integer BENCH_RUNS "$measured_runs"
+positive_integer BENCH_MIN_SECONDS "$min_seconds"
+if (( measured_runs < 3 || measured_runs > 100 )); then
+  echo 'BENCH_RUNS는 3~100 사이여야 합니다.' >&2
+  exit 1
+fi
+
+# 세미콜론으로 조건을 구분한다. 기본값은 일반/파이프라인/높은 부하의 대표 조건이다.
+conditions_text=${BENCH_CONDITIONS-'10 1;10 64;100 256'}
+if [[ ! "$conditions_text" =~ ^[1-9][0-9]*[[:blank:]]+[1-9][0-9]*(\;[1-9][0-9]*[[:blank:]]+[1-9][0-9]*)*$ ]]; then
+  echo "BENCH_CONDITIONS 형식: '10 1;10 64;100 256'" >&2
+  exit 1
+fi
+IFS=';' read -r -a conditions <<< "$conditions_text"
+declare -A seen_conditions=()
+for condition in "${conditions[@]}"; do
+  read -r clients pipeline <<< "$condition"
+  positive_integer clients "$clients"
+  positive_integer pipeline "$pipeline"
+  key="$clients/$pipeline"
+  if [[ -n "${seen_conditions[$key]-}" ]]; then
+    echo "중복 측정 조건: $key" >&2
+    exit 1
+  fi
+  seen_conditions[$key]=1
+done
+runs=(warmup)
+for ((run=1; run<=measured_runs; run++)); do runs+=("$run"); done
+
 # 어느 디렉터리에서 실행해도 같은 Compose 설정과 로그 경로를 사용한다.
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd) || exit 1
 cd "$script_dir/.." || exit 1
@@ -15,12 +58,7 @@ mkdir -p docs/benchmarks/raw || exit 1
 session="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 commit=$(git rev-parse HEAD) || exit 1
 log="docs/benchmarks/raw/${session}-${commit:0:7}.txt"
-summary="docs/benchmarks/benchmark-summary.md"
-
-requests=100000
-warmup_requests=10000
-conditions=("1 1" "10 1" "50 1" "10 16" "50 16" "10 64" "10 256" "50 256" "100 1" "100 16" "100 256")
-runs=(warmup 1 2 3)
+summary="docs/benchmarks/benchmark-baseline-summary.md"
 total_runs=$((${#conditions[@]} * ${#runs[@]}))
 completed=0
 
@@ -60,7 +98,7 @@ record() {
 {
   printf '\n=== Benchmark session %s ===\n' "$session"
   printf 'Time: %s\nCommit: %s\n' "$(date -Iseconds)" "$commit"
-  printf 'Command: PING\nMeasured requests per run: %s\nWarmup requests per run: %s\nWarmup: 1 per condition\nMeasured runs: 3 per condition\n' "$requests" "$warmup_requests"
+  printf 'Protocol: 2\nCommand: PING\nMeasured requests per run: %s\nWarmup requests per run: %s\nWarmup: 1 per condition\nMeasured runs: %s per condition\nMinimum measured seconds: %s\n' "$requests" "$warmup_requests" "$measured_runs" "$min_seconds"
   printf 'Conditions (clients pipeline): %s\n' "${conditions[*]}"
   printf 'Target: stop server, build release, recreate server, then benchmark\n'
   printf 'Commit is the working checkout; uncommitted source changes are included in the build.\n'

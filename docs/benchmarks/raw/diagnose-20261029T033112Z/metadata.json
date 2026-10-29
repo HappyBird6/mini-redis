@@ -1,0 +1,12 @@
+{
+  "phase": "server-one-worker",
+  "server_workers": 1,
+  "client_threads": 1,
+  "requests": 50000000,
+  "connections": 10,
+  "pipeline": 64,
+  "warmup_requests": 1000000,
+  "checkout": "5651d3deb2ceb04b11919399bf0604354f4a81a6",
+  "binary_sha256": "a61a2dccdb7ff734bbf39e342552c7e7e54fd90d927dcaf654d0cb33bf5af265",
+  "collection_note": "CPU/cgroup snapshots bracket Docker exec; small collection overhead is included. official-redis PID 1 schedstat describes idle Redis, not benchmark process; use its cgroup CPU totals instead. Initial phase reused the already running server without extra warmup."
+}
