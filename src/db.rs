@@ -110,7 +110,7 @@ impl Db {
         removed.is_some_and(|entry| !entry.is_expired(Instant::now()))
     }
 
-    pub fn purge_expired(&self) -> usize {
+    pub fn purge_expired(&self, limit: usize) -> usize {
         let mut state = self.state.write().expect("db lock poisoned");
         let now = Instant::now();
 
@@ -118,15 +118,19 @@ impl Db {
             entries,
             expirations,
         } = &mut *state;
-        let before = entries.len();
+        let mut removed = 0;
         while let Some((at, _)) = expirations.first() {
             if *at > now {
                 break;
             }
+            if removed >= limit {
+                break;
+            }
             let (_, key) = expirations.pop_first().unwrap();
+            removed += 1;
             entries.remove(&key);
         }
-        before - entries.len()
+        removed
     }
 
     pub fn set_expired_time(&self, key: &str, life_time: i64) -> Result<bool, ExpireError> {
@@ -227,7 +231,7 @@ mod tests {
         // 주기적 정리가 실행되기 전에도 만료된 키는 없는 키로 취급합니다.
         assert_eq!(db.ttl("expired"), -2);
         // 접근하는 순간 만료된 키가 삭제되므로 정리할 키가 남아 있지 않습니다.
-        assert_eq!(db.purge_expired(), 0);
+        assert_eq!(db.purge_expired(usize::MAX), 0);
         assert_eq!(db.ttl("expired"), -2);
     }
 
@@ -274,7 +278,7 @@ mod tests {
         insert_with_expiration(&db, "future", b"keep", now + Duration::from_secs(3600));
         db.set("permanent".to_owned(), b"keep forever".to_vec());
 
-        assert_eq!(db.purge_expired(), 2);
+        assert_eq!(db.purge_expired(usize::MAX), 2);
 
         // get()은 삭제 전에도 None을 반환하므로 실제 맵에서 제거됐는지 확인합니다.
         {
@@ -287,13 +291,13 @@ mod tests {
 
         assert_eq!(db.get("future"), Some(b"keep".to_vec()));
         assert_eq!(db.get("permanent"), Some(b"keep forever".to_vec()));
-        assert_eq!(db.purge_expired(), 0);
+        assert_eq!(db.purge_expired(usize::MAX), 0);
     }
 
     #[test]
     fn purge_expired_on_empty_db_returns_zero() {
         let db = Db::default();
-        assert_eq!(db.purge_expired(), 0);
+        assert_eq!(db.purge_expired(usize::MAX), 0);
         assert!(db
             .state
             .read()
@@ -313,7 +317,7 @@ mod tests {
         );
         db.set("language".to_owned(), b"rust".to_vec());
 
-        assert_eq!(db.purge_expired(), 0);
+        assert_eq!(db.purge_expired(usize::MAX), 0);
         assert_eq!(db.get("language"), Some(b"rust".to_vec()));
     }
 
@@ -414,7 +418,7 @@ mod tests {
 
         assert_eq!(db.get("expired"), None);
         assert!(!db.state.read().unwrap().entries.contains_key("expired"));
-        assert_eq!(db.purge_expired(), 0);
+        assert_eq!(db.purge_expired(usize::MAX), 0);
     }
 
     #[test]
@@ -429,7 +433,7 @@ mod tests {
 
         assert_eq!(db.ttl("expired"), -2);
         assert!(!db.state.read().unwrap().entries.contains_key("expired"));
-        assert_eq!(db.purge_expired(), 0);
+        assert_eq!(db.purge_expired(usize::MAX), 0);
     }
 
     #[test]
@@ -676,7 +680,7 @@ mod tests {
         insert_with_expiration(&db, "future", b"v", now + Duration::from_secs(3600));
         db.set("permanent".to_owned(), b"v".to_vec());
 
-        assert_eq!(db.purge_expired(), 2);
+        assert_eq!(db.purge_expired(usize::MAX), 2);
 
         let state = db.state.read().unwrap();
         // 아직 만료되지 않은 TTL 키만 인덱스에 남고, TTL 없는 키는 처음부터 없습니다.
@@ -694,7 +698,190 @@ mod tests {
 
         // TTL 키가 없으면 인덱스가 비어 있어 아무것도 지우지 않습니다.
         assert!(db.state.read().unwrap().expirations.is_empty());
-        assert_eq!(db.purge_expired(), 0);
+        assert_eq!(db.purge_expired(usize::MAX), 0);
         assert_eq!(db.state.read().unwrap().entries.len(), 100);
+    }
+
+    // ---- purge 한 번에 지우는 개수 상한(limit) 테스트 ----
+
+    #[test]
+    fn purge_expired_removes_at_most_limit_keys() {
+        let db = Db::default();
+        let past = Instant::now() - Duration::from_secs(1);
+        for i in 0..5 {
+            insert_with_expiration(&db, &format!("expired_{i}"), b"v", past);
+        }
+
+        // 상한을 꽉 채워 지우면 아직 남은 키가 있을 수 있다는 신호입니다.
+        assert_eq!(db.purge_expired(2), 2);
+        {
+            let state = db.state.read().unwrap();
+            assert_eq!(state.entries.len(), 3);
+            assert_eq!(state.expirations.len(), 3);
+        }
+
+        // 다시 호출하면 남은 키를 이어서 지우고, 상한보다 적게 지우면 다 비운 것입니다.
+        assert_eq!(db.purge_expired(2), 2);
+        assert_eq!(db.purge_expired(2), 1);
+        assert_eq!(db.purge_expired(2), 0);
+
+        let state = db.state.read().unwrap();
+        assert!(state.entries.is_empty());
+        assert!(state.expirations.is_empty());
+    }
+
+    #[test]
+    fn purge_expired_removes_earliest_expiration_first() {
+        let db = Db::default();
+        let now = Instant::now();
+        insert_with_expiration(&db, "newest", b"v", now - Duration::from_secs(1));
+        insert_with_expiration(&db, "oldest", b"v", now - Duration::from_secs(3));
+        insert_with_expiration(&db, "middle", b"v", now - Duration::from_secs(2));
+
+        assert_eq!(db.purge_expired(1), 1);
+        assert!(!in_index(&db, "oldest"));
+        assert!(in_index(&db, "middle"));
+        assert!(in_index(&db, "newest"));
+
+        assert_eq!(db.purge_expired(1), 1);
+        assert!(!in_index(&db, "middle"));
+        assert!(in_index(&db, "newest"));
+    }
+
+    #[test]
+    fn purge_expired_stops_at_live_key_before_reaching_limit() {
+        let db = Db::default();
+        let now = Instant::now();
+        insert_with_expiration(&db, "expired_a", b"v", now - Duration::from_secs(2));
+        insert_with_expiration(&db, "expired_b", b"v", now - Duration::from_secs(1));
+        insert_with_expiration(&db, "future", b"keep", now + Duration::from_secs(3600));
+
+        // 상한이 남아도 아직 만료되지 않은 키는 지우지 않습니다.
+        assert_eq!(db.purge_expired(10), 2);
+        assert!(in_index(&db, "future"));
+        assert_eq!(db.get("future"), Some(b"keep".to_vec()));
+    }
+
+    #[test]
+    fn purge_expired_with_zero_limit_removes_nothing() {
+        let db = Db::default();
+        insert_with_expiration(
+            &db,
+            "expired",
+            b"v",
+            Instant::now() - Duration::from_secs(1),
+        );
+
+        assert_eq!(db.purge_expired(0), 0);
+        assert!(in_index(&db, "expired"));
+        assert_eq!(db.state.read().unwrap().entries.len(), 1);
+    }
+
+    // ---- 측정용 테스트 ----
+    // 평소에는 건너뛰고 아래 명령으로만 실행합니다.
+    // cargo test --release --bin mini-redis bench_ -- --ignored --nocapture --test-threads=1
+
+    const BENCH_EXPIRED: usize = 200_000;
+
+    struct PurgeMeasurement {
+        // purge 한 번이 쓰기 락을 쥔 시간 중 최댓값과 중앙값
+        slowest_call: Duration,
+        median_call: Duration,
+        // 쉬는 시간을 뺀 purge 호출 시간의 합
+        busy: Duration,
+        calls: usize,
+        // purge가 도는 동안 get 한 번의 최악 지연
+        worst_get: Duration,
+    }
+
+    // 만료된 키 BENCH_EXPIRED개를 limit씩 나눠 지우면서 get 지연을 잽니다.
+    fn measure_purge(limit: usize) -> PurgeMeasurement {
+        let db = Db::default();
+        let past = Instant::now() - Duration::from_secs(1);
+        for i in 0..BENCH_EXPIRED {
+            insert_with_expiration(&db, &format!("expired_{i}"), b"v", past);
+        }
+        db.set("live".to_owned(), b"v".to_vec());
+
+        // 상한을 꽉 채운 동안은 다시 돕니다. 서버의 다음 tick처럼 사이에 쉬어서
+        // 기다리던 get이 락을 잡게 합니다. (yield_now만으로는 purge가 락을
+        // 바로 다시 잡아 get이 끝까지 기다리는 경우가 많습니다.)
+        let purger = db.clone();
+        let handle = std::thread::spawn(move || {
+            let mut calls = Vec::new();
+            loop {
+                let start = Instant::now();
+                let removed = purger.purge_expired(limit);
+                calls.push(start.elapsed());
+                if removed < limit {
+                    break calls;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        });
+
+        let mut worst_get = Duration::ZERO;
+        while !handle.is_finished() {
+            let start = Instant::now();
+            let _ = db.get("live");
+            worst_get = worst_get.max(start.elapsed());
+        }
+        let mut calls = handle.join().unwrap();
+        assert!(db.state.read().unwrap().expirations.is_empty());
+
+        calls.sort();
+        PurgeMeasurement {
+            slowest_call: *calls.last().unwrap(),
+            median_call: calls[calls.len() / 2],
+            busy: calls.iter().sum(),
+            calls: calls.len(),
+            worst_get,
+        }
+    }
+
+    fn limit_label(limit: usize) -> String {
+        if limit == usize::MAX {
+            "none".to_owned()
+        } else {
+            limit.to_string()
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_get_latency_during_purge() {
+        // usize::MAX는 상한이 없던 기존 동작, 1_000은 나눠서 지우는 동작입니다.
+        for limit in [usize::MAX, 1_000] {
+            let m = measure_purge(limit);
+            println!(
+                "limit={:>5} slowest purge call={:?} worst get={:?}",
+                limit_label(limit),
+                m.slowest_call,
+                m.worst_get
+            );
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_purge_limit_sweep() {
+        const RUNS: usize = 5;
+
+        println!("limit,run,calls,median_call_us,slowest_call_us,worst_get_us,busy_ms,ns_per_key");
+        for limit in [100, 500, 1_000, 2_000, 5_000, 10_000, 50_000, usize::MAX] {
+            for run in 1..=RUNS {
+                let m = measure_purge(limit);
+                println!(
+                    "{},{run},{},{},{},{},{:.2},{}",
+                    limit_label(limit),
+                    m.calls,
+                    m.median_call.as_micros(),
+                    m.slowest_call.as_micros(),
+                    m.worst_get.as_micros(),
+                    m.busy.as_secs_f64() * 1000.0,
+                    m.busy.as_nanos() / BENCH_EXPIRED as u128
+                );
+            }
+        }
     }
 }

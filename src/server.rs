@@ -11,6 +11,9 @@ use tracing::{debug, error, info, warn};
 use crate::config::ServerConfig;
 use crate::{connection, db::Db};
 
+const PURGE_INTERVAL: Duration = Duration::from_secs(1);
+const PURGE_BATCH_SIZE: usize = 2000;
+
 const REJECTION_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const SERVER_WAITING_TIMEOUT: Duration = Duration::from_secs(20); // 서버 종료 시 기존 연결 기다리는 시간
 
@@ -31,13 +34,13 @@ pub async fn run(server_config: ServerConfig) -> io::Result<()> {
     let (shutdown_sender, shutdown_receiver) = watch::channel(false);
 
     // 만료 키 삭제 타이머 추가
-    let mut purge_timer = tokio::time::interval(Duration::from_secs(1));
+    let mut purge_timer = tokio::time::interval(PURGE_INTERVAL);
     purge_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     let result: io::Result<()> = loop {
         tokio::select! {
             _ = purge_timer.tick() => {
-                let removed = db.purge_expired();
+                let removed = db.purge_expired(PURGE_BATCH_SIZE);
                 if removed > 0 {
                     debug!(removed, "expired keys purged");
                 }
