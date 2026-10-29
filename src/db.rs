@@ -89,16 +89,17 @@ impl Db {
     }
 
     /*
-    write() 함수로 쓰기 락 획득(delete는 값을 변화시키는거라 쓰기락을 얻어야 됨)
+    이미 쓰기 락을 잡은 State에서 키 하나를 지우는 내부 도우미 (락은 호출하는 쪽이 잡음)
+    State가 비공개 타입이라 pub 없이 db 모듈 안에서만 사용
     remove()
         성공 -> Some(값) 반환
         실패 -> None 반환
     지운 entry에 만료 시각이 있으면 expirations에서 (시각, 키) 제거
-    is_some_and로 만료 전이었는지 확인해 bool로 변환 (만료된 키는 지워도 false)
+    is_some_and로 now 기준 만료 전이었는지 확인해 bool로 변환 (만료된 키는 지워도 false)
+    now를 인자로 받아 같은 DEL 안의 키들을 같은 시각 기준으로 판정
     세미콜론 X -> 표현식이 바로 반환됨
     */
-    pub fn delete(&self, key: &str) -> bool {
-        let mut state = self.state.write().expect("db lock poisoned");
+    fn delete_with_locked_state(state: &mut State, key: &str, now: Instant) -> bool {
         let removed = state.entries.remove(key);
 
         // and_then은 self를 값으로 받아서 Option을 소비
@@ -107,7 +108,29 @@ impl Db {
             state.expirations.remove(&(at, key.to_owned()));
         }
 
-        removed.is_some_and(|entry| !entry.is_expired(Instant::now()))
+        removed.is_some_and(|entry| !entry.is_expired(now))
+    }
+
+    /*
+    DEL k1 k2 ... 처리: 여러 키를 지우고 실제로 지운(만료 전이던) 키 개수를 반환
+    쓰기 락을 한 번만 잡고 모든 키를 지움
+        키마다 락을 잡았다 놓으면 그 사이에 다른 요청이 끼어들어
+        "k1만 지워지고 k2는 남은" 중간 상태를 읽을 수 있음
+        Redis처럼 명령 하나는 다 끝난 상태로만 보이게 함
+    같은 키가 두 번 오면 두 번째는 이미 없는 키라 한 번만 셈 (DEL a a -> 1)
+    반환은 개수라 usize, RESP 정수(i64) 변환은 executor에서 함
+    */
+    pub fn delete(&self, keys: &[String]) -> usize {
+        let mut state = self.state.write().expect("db lock poisoned");
+        let mut deleted: usize = 0;
+        let now = Instant::now();
+        for key in keys {
+            let success = Self::delete_with_locked_state(&mut state, key, now);
+            if success {
+                deleted += 1;
+            }
+        }
+        deleted
     }
 
     pub fn purge_expired(&self) -> usize {
