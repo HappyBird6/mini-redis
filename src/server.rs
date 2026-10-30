@@ -34,6 +34,9 @@ pub async fn run(server_config: ServerConfig) -> io::Result<()> {
     // watch 채널 생성 -> 종료 신호 전달하기 위함 (Sender, Receiver), false는 안닫혔다는 의미, 인자로 bool 받음
     let (shutdown_sender, shutdown_receiver) = watch::channel(false);
 
+    // 연결 ID 생성
+    let mut client_id: u64 = 0;
+
     let purge_db = db.clone();
     let mut purge_shutdown_receiver = shutdown_receiver.clone();
     tokio::spawn(async move {
@@ -65,7 +68,13 @@ pub async fn run(server_config: ServerConfig) -> io::Result<()> {
                 };
 
                 let outcome = match accept_connection(
-                    socket, peer, &semaphore, &mut connections, &db, &shutdown_receiver,server_config.max_connections
+                    (socket, peer),
+                    &semaphore,
+                    &mut connections,
+                    &db,
+                    &shutdown_receiver,
+                    server_config.max_connections,
+                    &mut client_id,
                 ).await {
                     Ok(outcome) => outcome,
                     Err(error) => break Err(error),
@@ -145,14 +154,16 @@ async fn reject_connection(
     }
 }
 async fn accept_connection(
-    mut socket: TcpStream,
-    peer: SocketAddr,
+    connection: (TcpStream, SocketAddr),
     semaphore: &Arc<Semaphore>,
     connections: &mut JoinSet<()>,
     db: &Db,
     shutdown: &watch::Receiver<bool>,
     max_connections: usize,
+    client_id: &mut u64,
 ) -> io::Result<AcceptOutcome> {
+    // 기존 소켓, peer 받아오던 방식에서 connection 을 받아오는걸로 변경
+    let (mut socket, peer) = connection;
     // 퍼밋 받아옴
     let permit = match Arc::clone(semaphore).try_acquire_owned() {
         Ok(permit) => permit,
@@ -165,11 +176,16 @@ async fn accept_connection(
     let db = db.clone();
     let shutdown = shutdown.clone();
 
+    // client_id += 1 후 복사본 할당 후 handle에 소유권이랑 같이넘김
+    *client_id += 1;
+    let assigned_client_id = *client_id;
+
     connections.spawn(async move {
         // 퍼밋하나 할당. 블록끝나면 자동 드랍으로 퍼밋 보충
         let _permit = permit;
 
-        if let Err(error) = connection::handle(peer, socket, db, shutdown).await {
+        if let Err(error) = connection::handle(peer, socket, db, shutdown, assigned_client_id).await
+        {
             warn!(%peer, %error, "connection failed");
         }
     });
@@ -298,6 +314,7 @@ mod tests {
     #[tokio::test]
     async fn rejects_excess_connection_and_reuses_permit_after_shutdown() {
         let max_connections = 1;
+        let mut client_id = 0;
         let semaphore = Arc::new(Semaphore::new(max_connections));
         let mut connections = JoinSet::new();
         let db = Db::default();
@@ -306,19 +323,20 @@ mod tests {
 
         assert!(matches!(
             accept_connection(
-                socket,
-                peer,
+                (socket, peer),
                 &semaphore,
                 &mut connections,
                 &db,
                 &shutdown_rx,
                 max_connections,
+                &mut client_id,
             )
             .await
             .unwrap(),
             AcceptOutcome::Continue
         ));
         assert_eq!(semaphore.available_permits(), 0);
+        assert_eq!(client_id, 1);
         client.write_all(b"*1\r\n$4\r\nPING\r\n").await.unwrap();
         let mut pong = [0; 7];
         timeout(Duration::from_secs(2), client.read_exact(&mut pong))
@@ -330,13 +348,13 @@ mod tests {
         let (mut rejected, socket, peer) = socket_pair().await;
         assert!(matches!(
             accept_connection(
-                socket,
-                peer,
+                (socket, peer),
                 &semaphore,
                 &mut connections,
                 &db,
                 &shutdown_rx,
                 max_connections,
+                &mut client_id,
             )
             .await
             .unwrap(),
@@ -349,6 +367,7 @@ mod tests {
             .unwrap();
         assert_eq!(response, b"-ERR max number of clients reached\r\n");
         assert_eq!(connections.len(), 1);
+        assert_eq!(client_id, 1, "rejected connections must not consume an ID");
 
         shutdown_tx.send(true).unwrap();
         timeout(Duration::from_secs(2), graceful_shutdown(connections))
@@ -368,16 +387,17 @@ mod tests {
         let (mut client, socket, peer) = socket_pair().await;
         let mut connections = JoinSet::new();
         accept_connection(
-            socket,
-            peer,
+            (socket, peer),
             &semaphore,
             &mut connections,
             &db,
             &shutdown_rx,
             max_connections,
+            &mut client_id,
         )
         .await
         .unwrap();
+        assert_eq!(client_id, 2, "accepted connections must get a new ID");
         client.write_all(b"*1\r\n$4\r\nQUIT\r\n").await.unwrap();
         let mut response = Vec::new();
         timeout(Duration::from_secs(2), client.read_to_end(&mut response))

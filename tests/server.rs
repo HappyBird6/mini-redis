@@ -58,6 +58,79 @@ async fn assert_response(socket: &mut TcpStream, request: &[u8], expected: &[u8]
     .expect("server response timed out");
 }
 
+async fn read_client_id(socket: &mut TcpStream) -> i64 {
+    timeout(Duration::from_secs(2), async {
+        socket
+            .write_all(b"*2\r\n$6\r\nCLIENT\r\n$2\r\nID\r\n")
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        while !response.ends_with(b"\r\n") {
+            assert!(response.len() < 32, "invalid CLIENT ID response");
+            response.push(socket.read_u8().await.unwrap());
+        }
+        assert_eq!(response[0], b':');
+        let id = std::str::from_utf8(&response[1..response.len() - 2])
+            .unwrap()
+            .parse::<i64>()
+            .unwrap();
+        assert!(id > 0);
+        id
+    })
+    .await
+    .expect("CLIENT ID response timed out")
+}
+
+#[tokio::test]
+async fn client_ids_are_unique_and_names_are_connection_local() {
+    let (_server, address) = start_test_server().await;
+    let mut client_a = TcpStream::connect(address).await.unwrap();
+    let mut client_b = TcpStream::connect(address).await.unwrap();
+    let id_a = read_client_id(&mut client_a).await;
+    let id_b = read_client_id(&mut client_b).await;
+    assert_ne!(id_a, id_b);
+
+    let getname = b"*2\r\n$6\r\nCLIENT\r\n$7\r\nGETNAME\r\n";
+    assert_response(&mut client_a, getname, b"$-1\r\n").await;
+    assert_response(
+        &mut client_a,
+        b"*3\r\n$6\r\nCLIENT\r\n$7\r\nSETNAME\r\n$8\r\nworker-a\r\n",
+        b"+OK\r\n",
+    )
+    .await;
+    assert_response(&mut client_a, getname, b"$8\r\nworker-a\r\n").await;
+    assert_response(&mut client_b, getname, b"$-1\r\n").await;
+    assert_response(
+        &mut client_b,
+        b"*3\r\n$6\r\nCLIENT\r\n$7\r\nSETNAME\r\n$8\r\nworker-b\r\n",
+        b"+OK\r\n",
+    )
+    .await;
+    assert_response(&mut client_a, getname, b"$8\r\nworker-a\r\n").await;
+    assert_response(&mut client_b, getname, b"$8\r\nworker-b\r\n").await;
+    assert_eq!(read_client_id(&mut client_a).await, id_a);
+
+    assert_response(
+        &mut client_a,
+        b"*3\r\n$6\r\nCLIENT\r\n$7\r\nSETNAME\r\n$0\r\n\r\n",
+        b"+OK\r\n",
+    )
+    .await;
+    assert_response(&mut client_a, getname, b"$-1\r\n").await;
+    assert_response(&mut client_b, getname, b"$8\r\nworker-b\r\n").await;
+    assert_response(&mut client_a, b"*1\r\n$4\r\nQUIT\r\n", b"+OK\r\n").await;
+    drop(client_a);
+
+    let mut client_c = TcpStream::connect(address).await.unwrap();
+    let id_c = read_client_id(&mut client_c).await;
+    assert!(
+        id_c > id_a && id_c > id_b,
+        "new connections must not reuse an old ID"
+    );
+    assert_response(&mut client_c, getname, b"$-1\r\n").await;
+    assert_eq!(read_client_id(&mut client_b).await, id_b);
+}
+
 #[tokio::test]
 async fn multiple_clients_share_database() {
     let (_server, address) = start_test_server().await;

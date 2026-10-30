@@ -7,7 +7,7 @@ use tokio::sync::watch;
 use tokio::time::timeout;
 use tracing::info;
 
-use crate::command::Command;
+use crate::command::{ClientCommand, Command};
 use crate::db::Db;
 use crate::executor;
 use crate::resp;
@@ -24,8 +24,12 @@ pub async fn handle(
     mut socket: TcpStream,
     db: Db,
     mut shutdown: watch::Receiver<bool>,
+    client_id: u64,
 ) -> io::Result<()> {
     info!("client connected");
+    
+    // 클라이언트 네임
+    let mut client_name: Option<String> = None;
 
     socket.set_nodelay(true)?;
 
@@ -107,15 +111,33 @@ pub async fn handle(
                     frame을 command로 변경후 execute 함수로 넘기고 응답 frame 받아옴
                      */
                     let response = match Command::from_frame(frame) {
-                        Ok(command) => {
-                            if command == Command::Quit {
+                        Ok(command) => match command {
+                            Command::Quit => {
                                 // 쓰기 펜딩에 Quit OK 작성
                                 pending_resp.extend_from_slice(b"+OK\r\n");
                                 exit_quit = true;
                                 break;
                             }
-                            executor::execute(command, &db)
-                        }
+
+                            // Client 명령어를 다시 match해서 frame 분배
+                            Command::Client(client_command) => match client_command {
+                                ClientCommand::Id => resp::Frame::Integer(client_id as i64),
+
+                                ClientCommand::GetName => match &client_name {
+                                    Some(name) => resp::Frame::BulkString(name.as_bytes().to_vec()),
+                                    None => resp::Frame::Null,
+                                },
+                                ClientCommand::SetName { name } => {
+                                    client_name = if name.is_empty() { None } else { Some(name) };
+                                    resp::Frame::SimpleString("OK".to_owned())
+                                }
+
+                                ClientCommand::List => {
+                                    resp::Frame::Error("ERR CLIENT LIST not implemented".to_owned())
+                                }
+                            },
+                            other => executor::execute(other, &db),
+                        },
                         Err(error) => {
                             tracing::debug!(?error, "invalid command");
                             resp::Frame::Error(error.message().to_owned())
@@ -192,11 +214,67 @@ async fn write_pending(pending: &mut Vec<u8>, socket: &mut TcpStream) -> io::Res
 mod tests {
     use super::{handle, write_pending, MAX_PENDING_WRITE_BYTES, WRITE_TIMEOUT};
     use crate::db::Db;
+    use crate::resp::{self, Frame};
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
     use tokio::sync::watch;
     use tokio::time::timeout;
+
+    #[tokio::test]
+    async fn client_commands_preserve_pipeline_order_and_name_on_error() {
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (mut client, server) = start_connection(Db::default(), shutdown_rx).await;
+        let commands: &[&[&[u8]]] = &[
+            &[b"CLIENT", b"ID"],
+            &[b"CLIENT", b"GETNAME"],
+            &[b"CLIENT", b"SETNAME", b"worker-1"],
+            &[b"CLIENT", b"GETNAME"],
+            &[b"CLIENT", b"SETNAME", b"invalid name"],
+            &[b"CLIENT", b"GETNAME"],
+            &[b"CLIENT", b"UNKNOWN"],
+            &[b"CLIENT", b"LIST"],
+            &[b"CLIENT", b"ID", b"extra"],
+            &[b"CLIENT", b"SETNAME", b""],
+            &[b"CLIENT", b"GETNAME"],
+            &[b"CLIENT", b"ID"],
+            &[b"PING"],
+            &[b"QUIT"],
+        ];
+        let mut requests = Vec::new();
+        for parts in commands {
+            let frame = Frame::Array(
+                parts
+                    .iter()
+                    .map(|part| Frame::BulkString(part.to_vec()))
+                    .collect(),
+            );
+            requests.extend(resp::encode(frame).unwrap());
+        }
+        client.write_all(&requests).await.unwrap();
+        expect_closed(
+            &mut client,
+            server,
+            concat!(
+                ":1\r\n",
+                "$-1\r\n",
+                "+OK\r\n",
+                "$8\r\nworker-1\r\n",
+                "-ERR invalid client name\r\n",
+                "$8\r\nworker-1\r\n",
+                "-ERR unknown command\r\n",
+                "-ERR CLIENT LIST not implemented\r\n",
+                "-ERR wrong number of arguments\r\n",
+                "+OK\r\n",
+                "$-1\r\n",
+                ":1\r\n",
+                "+PONG\r\n",
+                "+OK\r\n",
+            )
+            .as_bytes(),
+        )
+        .await;
+    }
     /*
     파이프라이닝 테스트
     파이프라이닝 : 클라이언트가 응답을 기다리지 않고 여러 명령을 연속으로 보내는 방식
@@ -209,7 +287,7 @@ mod tests {
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
         let server = tokio::spawn(async move {
             let (socket, peer) = listener.accept().await.unwrap();
-            handle(peer, socket, db, shutdown_rx).await.unwrap();
+            handle(peer, socket, db, shutdown_rx, 1).await.unwrap();
         });
 
         let mut client = TcpStream::connect(address).await.unwrap();
@@ -252,7 +330,7 @@ mod tests {
 
         let server = tokio::spawn(async move {
             let (socket, peer) = listener.accept().await.unwrap();
-            handle(peer, socket, db, shutdown_rx).await.unwrap();
+            handle(peer, socket, db, shutdown_rx, 1).await.unwrap();
         });
 
         let mut client = TcpStream::connect(address).await.unwrap();
@@ -334,7 +412,7 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let client = TcpStream::connect(address).await.unwrap();
         let (socket, peer) = listener.accept().await.unwrap();
-        let server = tokio::spawn(handle(peer, socket, db, shutdown));
+        let server = tokio::spawn(handle(peer, socket, db, shutdown, 1));
         (client, server)
     }
 
@@ -372,7 +450,7 @@ mod tests {
             .unwrap();
         let (socket, peer) = listener.accept().await.unwrap();
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let handler = handle(peer, socket, Db::default(), shutdown_rx);
+        let handler = handle(peer, socket, Db::default(), shutdown_rx, 1);
         tokio::pin!(handler);
 
         // sleep 없이 핸들러를 먼저 poll해서 읽기 대기 상태로 만든다.
