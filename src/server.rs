@@ -13,6 +13,7 @@ use crate::{connection, db::Db};
 
 const PURGE_INTERVAL: Duration = Duration::from_secs(1);
 const PURGE_BATCH_SIZE: usize = 2000;
+const PURGE_BATCH_PAUSE: Duration = Duration::from_millis(1);
 
 const REJECTION_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const SERVER_WAITING_TIMEOUT: Duration = Duration::from_secs(20); // 서버 종료 시 기존 연결 기다리는 시간
@@ -33,18 +34,30 @@ pub async fn run(server_config: ServerConfig) -> io::Result<()> {
     // watch 채널 생성 -> 종료 신호 전달하기 위함 (Sender, Receiver), false는 안닫혔다는 의미, 인자로 bool 받음
     let (shutdown_sender, shutdown_receiver) = watch::channel(false);
 
-    // 만료 키 삭제 타이머 추가
-    let mut purge_timer = tokio::time::interval(PURGE_INTERVAL);
-    purge_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let purge_db = db.clone();
+    let mut purge_shutdown_receiver = shutdown_receiver.clone();
+    tokio::spawn(async move {
+        // 만료 키 삭제 타이머 추가
+        let mut purge_timer = tokio::time::interval(PURGE_INTERVAL);
+        purge_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                _ = purge_timer.tick() => {
+                    let total_removed = purge_until_done(&purge_db).await;
+                    if total_removed > 0 {
+                        debug!(total_removed, "expired keys purged");
+                    }
+                }
+
+                _ = purge_shutdown_receiver.changed() => {
+                    break;
+                }
+            }
+        }
+    });
 
     let result: io::Result<()> = loop {
         tokio::select! {
-            _ = purge_timer.tick() => {
-                let removed = db.purge_expired(PURGE_BATCH_SIZE);
-                if removed > 0 {
-                    debug!(removed, "expired keys purged");
-                }
-            }
             accepted = listener.accept() => {
                 let (socket, peer) = match accepted {
                     Ok(connection) => connection,
@@ -93,6 +106,18 @@ pub async fn run(server_config: ServerConfig) -> io::Result<()> {
 
     // 루프 결과를 반환
     result
+}
+// 만료 키를 PURGE_BATCH_SIZE개씩 지우고, 묶음 사이마다 쉬며 lock을 다른 요청에 양보합니다.
+// 한 묶음이 꽉 차지 않으면 더 지울 키가 없다는 뜻이므로 멈추고 총 삭제 수를 돌려줍니다.
+async fn purge_until_done(db: &Db) -> usize {
+    let mut removed = db.purge_expired(PURGE_BATCH_SIZE);
+    let mut total_removed = removed;
+    while removed == PURGE_BATCH_SIZE {
+        tokio::time::sleep(PURGE_BATCH_PAUSE).await;
+        removed = db.purge_expired(PURGE_BATCH_SIZE);
+        total_removed += removed;
+    }
+    total_removed
 }
 enum AcceptOutcome {
     Continue,
@@ -399,5 +424,44 @@ mod tests {
         graceful_shutdown(connections).await;
         assert_eq!(started.elapsed(), SERVER_WAITING_TIMEOUT);
         assert_eq!(semaphore.available_permits(), 1);
+    }
+
+    fn insert_expired_keys(db: &Db, count: usize) {
+        let expires_at = std::time::Instant::now() - Duration::from_secs(1);
+        for i in 0..count {
+            crate::db::insert_with_expiration(db, &format!("expired:{i}"), b"v", expires_at);
+        }
+    }
+
+    #[tokio::test]
+    async fn purge_until_done_repeats_batches_until_all_expired_keys_are_removed() {
+        let db = Db::default();
+        // 묶음 2번 반을 채워 꽉 찬 묶음 뒤에도 반복이 이어지는지 확인합니다.
+        let count = PURGE_BATCH_SIZE * 2 + PURGE_BATCH_SIZE / 2;
+        insert_expired_keys(&db, count);
+        db.set("alive".to_owned(), b"keep".to_vec());
+
+        assert_eq!(purge_until_done(&db).await, count);
+        assert_eq!(db.purge_expired(usize::MAX), 0);
+        assert_eq!(db.get("alive"), Some(b"keep".to_vec()));
+    }
+
+    #[tokio::test]
+    async fn purge_until_done_handles_exact_multiple_of_batch_size() {
+        let db = Db::default();
+        // 묶음이 딱 맞게 끝나면 마지막 0개 호출로 멈춰야 합니다.
+        insert_expired_keys(&db, PURGE_BATCH_SIZE);
+
+        assert_eq!(purge_until_done(&db).await, PURGE_BATCH_SIZE);
+        assert_eq!(db.purge_expired(usize::MAX), 0);
+    }
+
+    #[tokio::test]
+    async fn purge_until_done_returns_zero_without_expired_keys() {
+        let db = Db::default();
+        db.set("alive".to_owned(), b"keep".to_vec());
+
+        assert_eq!(purge_until_done(&db).await, 0);
+        assert_eq!(db.get("alive"), Some(b"keep".to_vec()));
     }
 }
