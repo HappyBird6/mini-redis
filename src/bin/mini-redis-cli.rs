@@ -22,48 +22,43 @@ async fn main() -> io::Result<()> {
 
     let mut host: String = "127.0.0.1".to_owned();
     let mut port: u16 = 6379;
-    loop {
-        // 읽어온 실행인자 체크
-        match args.next() {
-            Some(arg) => match arg.as_str() {
-                "-h" => {
-                    host = args.next().ok_or_else(|| {
-                        io::Error::new(io::ErrorKind::InvalidInput, "-h requires a host")
-                    })?;
-                    if host.trim().is_empty() || host.starts_with('-') {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "-h requires a valid host",
-                        ));
-                    }
-                }
-                "-p" => {
-                    let value = args.next().ok_or(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "-p requires a port",
-                    ))?;
-                    port = value.parse::<u16>().map_err(|_| {
-                        io::Error::new(io::ErrorKind::InvalidInput, "port must be 1..=65535")
-                    })?;
-
-                    if port == 0 {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "port must be 1..=65535",
-                        ));
-                    }
-                }
-                _ => {
+    // 읽어온 실행인자 체크
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-h" => {
+                host = args.next().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "-h requires a host")
+                })?;
+                if host.trim().is_empty() || host.starts_with('-') {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
-                        format!("unknown option: {arg}"),
+                        "-h requires a valid host",
                     ));
                 }
-            },
-            None => {
-                break;
             }
-        };
+            "-p" => {
+                let value = args.next().ok_or(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "-p requires a port",
+                ))?;
+                port = value.parse::<u16>().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "port must be 1..=65535")
+                })?;
+
+                if port == 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "port must be 1..=65535",
+                    ));
+                }
+            }
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("unknown option: {arg}"),
+                ));
+            }
+        }
     }
     // 서버에 접속해서 소켓 획득
     let mut socket = TcpStream::connect((host.as_str(), port)).await?;

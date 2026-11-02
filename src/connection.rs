@@ -1,5 +1,6 @@
 use std::io::{self};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -7,7 +8,8 @@ use tokio::sync::watch;
 use tokio::time::timeout;
 use tracing::info;
 
-use crate::command::Command;
+use crate::client::{ClientGuard, Clients};
+use crate::command::{ClientCommand, Command};
 use crate::db::Db;
 use crate::executor;
 use crate::resp;
@@ -17,17 +19,23 @@ const MAX_PENDING_WRITE_BYTES: usize = 4 * 1024; // 4 KiB 묶음 전송 기준 (
 const READ_TIMEOUT: Duration = Duration::from_secs(60); // 읽기 타임아웃 60초
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10); // 쓰기 타임아웃 10초
 
-// 함수 실행 자체를 추적, socket, db는 로그필드에서 제외
-#[tracing::instrument(skip(socket, db,shutdown), fields(peer = %peer))]
+// 함수 실행 자체를 추적, socket, db, shutdown, clients는 로그필드에서 제외
+#[tracing::instrument(skip(socket, db, shutdown, clients), fields(peer = %peer))]
 pub async fn handle(
     peer: SocketAddr,
     mut socket: TcpStream,
     db: Db,
+    clients: Clients,
     mut shutdown: watch::Receiver<bool>,
+    client_id: u64,
 ) -> io::Result<()> {
     info!("client connected");
 
     socket.set_nodelay(true)?;
+
+    // 종료시 clients에서 삭제를 하기 위한 client_guard 생성, 동시에 clients에 현재 client 등록
+    // handle 끝나면 clientguard 구조체에서 구현한 drop이 실행됨
+    let _client_guard = ClientGuard::register(Arc::clone(&clients), client_id, peer);
 
     let mut buffer = [0_u8; 4096];
     let mut pending: Vec<u8> = Vec::new();
@@ -107,15 +115,71 @@ pub async fn handle(
                     frame을 command로 변경후 execute 함수로 넘기고 응답 frame 받아옴
                      */
                     let response = match Command::from_frame(frame) {
-                        Ok(command) => {
-                            if command == Command::Quit {
+                        Ok(command) => match command {
+                            Command::Quit => {
                                 // 쓰기 펜딩에 Quit OK 작성
                                 pending_resp.extend_from_slice(b"+OK\r\n");
                                 exit_quit = true;
                                 break;
                             }
-                            executor::execute(command, &db)
-                        }
+
+                            // Client 명령어를 다시 match해서 frame 분배
+                            Command::Client(client_command) => match client_command {
+                                ClientCommand::Id => resp::Frame::Integer(client_id as i64),
+
+                                ClientCommand::GetName => {
+                                    let name = {
+                                        let registry =
+                                            clients.lock().expect("clients lock poisoned");
+
+                                        registry
+                                            .get(&client_id)
+                                            .expect("current client must be registered")
+                                            .name
+                                            .clone()
+                                    }; // 이름을 복사하고 락 해제
+
+                                    match name {
+                                        Some(name) => resp::Frame::BulkString(name.into_bytes()),
+                                        None => resp::Frame::Null,
+                                    }
+                                }
+                                ClientCommand::SetName { name } => {
+                                    {
+                                        // 쓰기 락 획득
+                                        let mut registry =
+                                            clients.lock().expect("clients lock poisoned");
+
+                                        let client = registry
+                                            .get_mut(&client_id)
+                                            .expect("current client must be registered");
+                                        client.name =
+                                            if name.is_empty() { None } else { Some(name) };
+                                    }
+                                    resp::Frame::SimpleString("OK".to_owned())
+                                }
+
+                                ClientCommand::List => {
+                                    let snapshot = {
+                                        let registry =
+                                            clients.lock().expect("clients lock poisoned");
+                                        registry.clone()
+                                    }; // 목록을 복사한 뒤 락 해제
+
+                                    let mut output = String::new();
+                                    for (id, client) in snapshot {
+                                        output.push_str(&format!(
+                                            "id={} addr={} name={}\n",
+                                            id,
+                                            client.addr,
+                                            client.name.as_deref().unwrap_or("")
+                                        ));
+                                    }
+                                    resp::Frame::BulkString(output.into_bytes())
+                                }
+                            },
+                            other => executor::execute(other, &db),
+                        },
                         Err(error) => {
                             tracing::debug!(?error, "invalid command");
                             resp::Frame::Error(error.message().to_owned())
@@ -191,12 +255,74 @@ async fn write_pending(pending: &mut Vec<u8>, socket: &mut TcpStream) -> io::Res
 #[cfg(test)]
 mod tests {
     use super::{handle, write_pending, MAX_PENDING_WRITE_BYTES, WRITE_TIMEOUT};
+    use crate::client::{ClientGuard, Clients};
     use crate::db::Db;
+    use crate::resp::{self, Frame};
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
     use tokio::sync::watch;
     use tokio::time::timeout;
+
+    #[tokio::test]
+    async fn client_commands_preserve_pipeline_order_and_name_on_error() {
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (mut client, server) = start_connection(Db::default(), shutdown_rx).await;
+        let commands: &[&[&[u8]]] = &[
+            &[b"CLIENT", b"ID"],
+            &[b"CLIENT", b"GETNAME"],
+            &[b"CLIENT", b"SETNAME", b"worker-1"],
+            &[b"CLIENT", b"GETNAME"],
+            &[b"CLIENT", b"SETNAME", b"invalid name"],
+            &[b"CLIENT", b"GETNAME"],
+            &[b"CLIENT", b"UNKNOWN"],
+            &[b"CLIENT", b"LIST"],
+            &[b"CLIENT", b"ID", b"extra"],
+            &[b"CLIENT", b"SETNAME", b""],
+            &[b"CLIENT", b"GETNAME"],
+            &[b"CLIENT", b"ID"],
+            &[b"PING"],
+            &[b"QUIT"],
+        ];
+        let mut requests = Vec::new();
+        for parts in commands {
+            let frame = Frame::Array(
+                parts
+                    .iter()
+                    .map(|part| Frame::BulkString(part.to_vec()))
+                    .collect(),
+            );
+            requests.extend(resp::encode(frame).unwrap());
+        }
+        client.write_all(&requests).await.unwrap();
+        let list = format!("id=1 addr={} name=worker-1\n", client.local_addr().unwrap());
+        let list_response = format!("${}\r\n{}\r\n", list.len(), list);
+        expect_closed(
+            &mut client,
+            server,
+            format!(
+                concat!(
+                    ":1\r\n",
+                    "$-1\r\n",
+                    "+OK\r\n",
+                    "$8\r\nworker-1\r\n",
+                    "-ERR invalid client name\r\n",
+                    "$8\r\nworker-1\r\n",
+                    "-ERR unknown command\r\n",
+                    "{}",
+                    "-ERR wrong number of arguments\r\n",
+                    "+OK\r\n",
+                    "$-1\r\n",
+                    ":1\r\n",
+                    "+PONG\r\n",
+                    "+OK\r\n",
+                ),
+                list_response
+            )
+            .as_bytes(),
+        )
+        .await;
+    }
     /*
     파이프라이닝 테스트
     파이프라이닝 : 클라이언트가 응답을 기다리지 않고 여러 명령을 연속으로 보내는 방식
@@ -209,7 +335,9 @@ mod tests {
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
         let server = tokio::spawn(async move {
             let (socket, peer) = listener.accept().await.unwrap();
-            handle(peer, socket, db, shutdown_rx).await.unwrap();
+            handle(peer, socket, db, Clients::default(), shutdown_rx, 1)
+                .await
+                .unwrap();
         });
 
         let mut client = TcpStream::connect(address).await.unwrap();
@@ -252,7 +380,9 @@ mod tests {
 
         let server = tokio::spawn(async move {
             let (socket, peer) = listener.accept().await.unwrap();
-            handle(peer, socket, db, shutdown_rx).await.unwrap();
+            handle(peer, socket, db, Clients::default(), shutdown_rx, 1)
+                .await
+                .unwrap();
         });
 
         let mut client = TcpStream::connect(address).await.unwrap();
@@ -330,11 +460,20 @@ mod tests {
         db: Db,
         shutdown: watch::Receiver<bool>,
     ) -> (TcpStream, tokio::task::JoinHandle<std::io::Result<()>>) {
+        start_connection_with_clients(db, Clients::default(), shutdown, 1).await
+    }
+
+    async fn start_connection_with_clients(
+        db: Db,
+        clients: Clients,
+        shutdown: watch::Receiver<bool>,
+        client_id: u64,
+    ) -> (TcpStream, tokio::task::JoinHandle<std::io::Result<()>>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let client = TcpStream::connect(address).await.unwrap();
         let (socket, peer) = listener.accept().await.unwrap();
-        let server = tokio::spawn(handle(peer, socket, db, shutdown));
+        let server = tokio::spawn(handle(peer, socket, db, clients, shutdown, client_id));
         (client, server)
     }
 
@@ -357,6 +496,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn registry_cleans_up_on_eof_protocol_error_abort_and_shutdown() {
+        for exit in ["eof", "protocol_error", "abort", "shutdown"] {
+            let clients = Clients::default();
+            let _other =
+                ClientGuard::register(clients.clone(), 99, "127.0.0.1:50000".parse().unwrap());
+            let (shutdown_tx, shutdown_rx) = watch::channel(false);
+            let (mut client, server) =
+                start_connection_with_clients(Db::default(), clients.clone(), shutdown_rx, 1).await;
+
+            // 응답을 기다려 핸들러가 등록을 마친 상태임을 보장한다.
+            client.write_all(b"*1\r\n$4\r\nPING\r\n").await.unwrap();
+            let mut response = [0; 7];
+            timeout(Duration::from_secs(2), client.read_exact(&mut response))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(&response, b"+PONG\r\n");
+            assert!(clients.lock().unwrap().contains_key(&1));
+
+            match exit {
+                "eof" => {
+                    drop(client);
+                    timeout(Duration::from_secs(2), server)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                }
+                "protocol_error" => {
+                    client.write_all(b"?").await.unwrap();
+                    let error = timeout(Duration::from_secs(2), server)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .unwrap_err();
+                    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+                }
+                "abort" => {
+                    server.abort();
+                    let error = timeout(Duration::from_secs(2), server)
+                        .await
+                        .unwrap()
+                        .unwrap_err();
+                    assert!(error.is_cancelled());
+                }
+                "shutdown" => {
+                    shutdown_tx.send(true).unwrap();
+                    timeout(Duration::from_secs(2), server)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                clients.lock().unwrap().keys().copied().collect::<Vec<_>>(),
+                vec![99],
+                "exit: {exit}"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn closes_when_shutdown_is_already_true() {
         // 초기값 true는 변경 알림이 없어도 borrow()로 확인해야 한다.
         let (_shutdown_tx, shutdown_rx) = watch::channel(true);
@@ -372,7 +575,14 @@ mod tests {
             .unwrap();
         let (socket, peer) = listener.accept().await.unwrap();
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let handler = handle(peer, socket, Db::default(), shutdown_rx);
+        let handler = handle(
+            peer,
+            socket,
+            Db::default(),
+            Clients::default(),
+            shutdown_rx,
+            1,
+        );
         tokio::pin!(handler);
 
         // sleep 없이 핸들러를 먼저 poll해서 읽기 대기 상태로 만든다.

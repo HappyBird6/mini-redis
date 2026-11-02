@@ -14,8 +14,16 @@ pub enum Command {
     Expire { key: String, seconds: i64 },
     Ttl { key: String },
     Quit,
+    Client(ClientCommand),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClientCommand {
+    Id,
+    SetName { name: String },
+    GetName,
+    List,
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandError {
     ExpectedArray,
@@ -25,6 +33,7 @@ pub enum CommandError {
     UnknownCommand,
     WrongArity,
     InvalidInteger,
+    InvalidClientName,
 }
 impl CommandError {
     pub fn message(&self) -> &'static str {
@@ -36,6 +45,7 @@ impl CommandError {
             Self::UnknownCommand => "ERR unknown command",
             Self::WrongArity => "ERR wrong number of arguments",
             Self::InvalidInteger => "ERR invalid integer",
+            Self::InvalidClientName => "ERR invalid client name",
         }
     }
 }
@@ -152,6 +162,48 @@ impl Command {
                 return Err(CommandError::WrongArity);
             }
             Ok(Self::Quit)
+        } else if command.eq_ignore_ascii_case(b"CLIENT") {
+            /*
+            @@@ Client @@@
+             */
+            // 인자가 없으면 next_key()가 WrongArity를 반환
+            let option = next_key(&mut args)?;
+            match option.to_ascii_uppercase().as_str() {
+                "ID" => {
+                    if args.len() != 0 {
+                        return Err(CommandError::WrongArity);
+                    }
+
+                    Ok(Self::Client(ClientCommand::Id))
+                }
+                "GETNAME" => {
+                    if args.len() != 0 {
+                        return Err(CommandError::WrongArity);
+                    }
+
+                    Ok(Self::Client(ClientCommand::GetName))
+                }
+                "SETNAME" => {
+                    if args.len() != 1 {
+                        return Err(CommandError::WrongArity);
+                    }
+
+                    let name = next_key(&mut args)?;
+                    let valid = name.bytes().all(|b| b.is_ascii_graphic());
+                    if !valid {
+                        return Err(CommandError::InvalidClientName);
+                    }
+                    Ok(Self::Client(ClientCommand::SetName { name }))
+                }
+                "LIST" => {
+                    if args.len() != 0 {
+                        return Err(CommandError::WrongArity);
+                    }
+
+                    Ok(Self::Client(ClientCommand::List))
+                }
+                _ => Err(CommandError::UnknownCommand),
+            }
         } else {
             Err(CommandError::UnknownCommand)
         }
@@ -160,7 +212,7 @@ impl Command {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, CommandError};
+    use super::{ClientCommand, Command, CommandError};
     use crate::resp::Frame;
 
     // 명령 이름과 인자를 BulkString 배열로 구성
@@ -171,6 +223,107 @@ mod tests {
                 .map(|part| Frame::BulkString(part.to_vec()))
                 .collect(),
         )
+    }
+
+    #[test]
+    fn parses_client_subcommands_case_insensitively() {
+        let cases: &[(&[&[u8]], ClientCommand)] = &[
+            (&[b"CLIENT", b"ID"], ClientCommand::Id),
+            (&[b"cLiEnT", b"iD"], ClientCommand::Id),
+            (&[b"CLIENT", b"GETNAME"], ClientCommand::GetName),
+            (&[b"client", b"getname"], ClientCommand::GetName),
+            (&[b"CLIENT", b"LIST"], ClientCommand::List),
+            (&[b"client", b"list"], ClientCommand::List),
+            (
+                &[b"CLIENT", b"SETNAME", b"worker-1"],
+                ClientCommand::SetName {
+                    name: "worker-1".to_owned(),
+                },
+            ),
+            (
+                &[b"client", b"setname", b""],
+                ClientCommand::SetName {
+                    name: String::new(),
+                },
+            ),
+        ];
+        for (parts, expected) in cases {
+            assert_eq!(
+                Command::from_frame(request(parts)),
+                Ok(Command::Client(expected.clone()))
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_client_wrong_argument_counts() {
+        let cases: &[&[&[u8]]] = &[
+            &[b"CLIENT"],
+            &[b"CLIENT", b"ID", b"extra"],
+            &[b"CLIENT", b"GETNAME", b"extra"],
+            &[b"CLIENT", b"LIST", b"extra"],
+            &[b"CLIENT", b"SETNAME"],
+            &[b"CLIENT", b"SETNAME", b"worker", b"extra"],
+        ];
+        for parts in cases {
+            assert_eq!(
+                Command::from_frame(request(parts)),
+                Err(CommandError::WrongArity)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_client_subcommand() {
+        for parts in [
+            vec![b"CLIENT".as_slice(), b"UNKNOWN"],
+            vec![b"CLIENT".as_slice(), b"UNKNOWN", b"extra"],
+        ] {
+            assert_eq!(
+                Command::from_frame(request(&parts)),
+                Err(CommandError::UnknownCommand)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_client_names() {
+        let names: &[&[u8]] = &[
+            b"hello world",
+            b" ",
+            b"tab\tname",
+            b"line\r\nname",
+            b"null\0name",
+            b"\x7f",
+            "이름".as_bytes(),
+        ];
+        for name in names {
+            assert_eq!(
+                Command::from_frame(request(&[b"CLIENT", b"SETNAME", name])),
+                Err(CommandError::InvalidClientName)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_client_argument_types_and_encoding() {
+        for parts in [
+            vec![Frame::BulkString(b"CLIENT".to_vec()), Frame::Integer(1)],
+            vec![
+                Frame::BulkString(b"CLIENT".to_vec()),
+                Frame::BulkString(b"SETNAME".to_vec()),
+                Frame::Integer(1),
+            ],
+        ] {
+            assert_eq!(
+                Command::from_frame(Frame::Array(parts)),
+                Err(CommandError::ExpectedBulkString)
+            );
+        }
+        assert_eq!(
+            Command::from_frame(request(&[b"CLIENT", b"SETNAME", &[0xff]])),
+            Err(CommandError::InvalidUtf8Key)
+        );
     }
 
     #[test]

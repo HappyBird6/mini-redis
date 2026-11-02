@@ -30,9 +30,8 @@ pub fn execute(command: Command, db: &Db) -> Frame {
             }
         },
         Command::Ttl { key } => Frame::Integer(db.ttl(&key)),
-        Command::Quit => {
-            // Quit은 여기 도달할 일 없음. 커맨드 명시용 분기
-            unreachable!("QUIT must be handled in connection.rs")
+        Command::Quit | Command::Client(_) => {
+            unreachable!("Command must be handled in connection.rs")
         }
     }
 }
