@@ -988,4 +988,116 @@ mod tests {
             }
         }
     }
+
+    // ---- 동시 접근 처리량 측정 ----
+    // 여러 스레드가 서로 다른 키에 GET/SET을 섞어 보낼 때 락 경합으로 처리량이 얼마나
+    // 막히는지 잽니다. 공개 API(set/get)만 쓰므로 샤드 도입 전후에 그대로 비교할 수 있습니다.
+
+    const CONTENTION_KEYS: usize = 100_000;
+    const CONTENTION_DURATION: Duration = Duration::from_secs(2);
+    // 매 연산 시간을 재면 측정 비용이 커서 16번에 한 번만 지연을 기록합니다.
+    const CONTENTION_SAMPLE_EVERY: u64 = 16;
+
+    struct ContentionMeasurement {
+        ops_per_sec: f64,
+        p99: Duration,
+        worst: Duration,
+    }
+
+    // 외부 크레이트 없이 스레드마다 다른 키를 고르기 위한 xorshift 난수입니다.
+    fn next_random(state: &mut u64) -> u64 {
+        *state ^= *state << 13;
+        *state ^= *state >> 7;
+        *state ^= *state << 17;
+        *state
+    }
+
+    // threads개 스레드가 CONTENTION_DURATION 동안 연산을 반복합니다.
+    // 100번 중 write_percent번은 SET, 나머지는 GET입니다.
+    fn measure_contention(threads: usize, write_percent: u64) -> ContentionMeasurement {
+        let db = Db::default();
+        let keys: Arc<Vec<String>> =
+            Arc::new((0..CONTENTION_KEYS).map(|i| format!("key:{i}")).collect());
+        for key in keys.iter() {
+            db.set(key.clone(), b"value".to_vec());
+        }
+
+        // 모든 스레드가 준비된 뒤 같은 시각에 출발시킵니다.
+        let barrier = Arc::new(std::sync::Barrier::new(threads + 1));
+        let handles: Vec<_> = (0..threads)
+            .map(|t| {
+                let db = db.clone();
+                let keys = Arc::clone(&keys);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let mut rng = 0x9E37_79B9_7F4A_7C15 ^ (t as u64 + 1);
+                    let mut ops: u64 = 0;
+                    let mut samples = Vec::new();
+                    barrier.wait();
+                    let started = Instant::now();
+                    while started.elapsed() < CONTENTION_DURATION {
+                        // elapsed 호출 비용을 줄이려고 시간 확인 사이에 연산을 묶어서 돌립니다.
+                        for _ in 0..64 {
+                            let r = next_random(&mut rng);
+                            let key = &keys[(r as usize) % keys.len()];
+                            let sample = ops.is_multiple_of(CONTENTION_SAMPLE_EVERY);
+                            let op_started = sample.then(Instant::now);
+                            if r % 100 < write_percent {
+                                db.set(key.clone(), b"value".to_vec());
+                            } else {
+                                std::hint::black_box(db.get(key));
+                            }
+                            if let Some(op_started) = op_started {
+                                samples.push(op_started.elapsed());
+                            }
+                            ops += 1;
+                        }
+                    }
+                    (ops, started.elapsed(), samples)
+                })
+            })
+            .collect();
+
+        barrier.wait();
+        let mut total_ops = 0;
+        let mut longest_run = Duration::ZERO;
+        let mut samples = Vec::new();
+        for handle in handles {
+            let (ops, elapsed, mut thread_samples) = handle.join().unwrap();
+            total_ops += ops;
+            longest_run = longest_run.max(elapsed);
+            samples.append(&mut thread_samples);
+        }
+
+        samples.sort();
+        ContentionMeasurement {
+            ops_per_sec: total_ops as f64 / longest_run.as_secs_f64(),
+            p99: samples[samples.len() * 99 / 100],
+            worst: *samples.last().unwrap(),
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_contention_sweep() {
+        const RUNS: usize = 3;
+
+        let cpus = std::thread::available_parallelism().map_or(0, |n| n.get());
+        println!("# cpus={cpus} keys={CONTENTION_KEYS} duration={CONTENTION_DURATION:?}");
+        println!("write_percent,threads,run,ops_per_sec,p99_ns,worst_us");
+        // 10: 읽기 위주, 50: 쓰기가 많은 경우
+        for write_percent in [10, 50] {
+            for threads in [1, 2, 4, 8] {
+                for run in 1..=RUNS {
+                    let m = measure_contention(threads, write_percent);
+                    println!(
+                        "{write_percent},{threads},{run},{:.0},{},{}",
+                        m.ops_per_sec,
+                        m.p99.as_nanos(),
+                        m.worst.as_micros()
+                    );
+                }
+            }
+        }
+    }
 }
