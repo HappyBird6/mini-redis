@@ -1,6 +1,7 @@
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
-use std::{io, sync::Arc};
+use std::{io, sync::Arc, sync::Mutex};
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{watch, Semaphore};
@@ -8,6 +9,7 @@ use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
+use crate::client::Clients;
 use crate::config::ServerConfig;
 use crate::{connection, db::Db};
 
@@ -36,6 +38,9 @@ pub async fn run(server_config: ServerConfig) -> io::Result<()> {
 
     // 연결 ID 생성
     let mut client_id: u64 = 0;
+
+    // 연결 client 리스트 생성
+    let clients: Clients = Arc::new(Mutex::new(BTreeMap::new()));
 
     let purge_db = db.clone();
     let mut purge_shutdown_receiver = shutdown_receiver.clone();
@@ -72,6 +77,7 @@ pub async fn run(server_config: ServerConfig) -> io::Result<()> {
                     &semaphore,
                     &mut connections,
                     &db,
+                    &clients,
                     &shutdown_receiver,
                     server_config.max_connections,
                     &mut client_id,
@@ -153,11 +159,17 @@ async fn reject_connection(
         }
     }
 }
+// 연결 수락에 필요한 상태를 명시적으로 전달하며, 공유 목록도 별도로 소유한다.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "연결 수락 상태의 명시적인 전달을 유지"
+)]
 async fn accept_connection(
     connection: (TcpStream, SocketAddr),
     semaphore: &Arc<Semaphore>,
     connections: &mut JoinSet<()>,
     db: &Db,
+    clients: &Clients,
     shutdown: &watch::Receiver<bool>,
     max_connections: usize,
     client_id: &mut u64,
@@ -174,6 +186,8 @@ async fn accept_connection(
     };
 
     let db = db.clone();
+    let clients = Arc::clone(clients);
+
     let shutdown = shutdown.clone();
 
     // client_id += 1 후 복사본 할당 후 handle에 소유권이랑 같이넘김
@@ -184,7 +198,8 @@ async fn accept_connection(
         // 퍼밋하나 할당. 블록끝나면 자동 드랍으로 퍼밋 보충
         let _permit = permit;
 
-        if let Err(error) = connection::handle(peer, socket, db, shutdown, assigned_client_id).await
+        if let Err(error) =
+            connection::handle(peer, socket, db, clients, shutdown, assigned_client_id).await
         {
             warn!(%peer, %error, "connection failed");
         }
@@ -315,6 +330,7 @@ mod tests {
     async fn rejects_excess_connection_and_reuses_permit_after_shutdown() {
         let max_connections = 1;
         let mut client_id = 0;
+        let clients = Clients::default();
         let semaphore = Arc::new(Semaphore::new(max_connections));
         let mut connections = JoinSet::new();
         let db = Db::default();
@@ -327,6 +343,7 @@ mod tests {
                 &semaphore,
                 &mut connections,
                 &db,
+                &clients,
                 &shutdown_rx,
                 max_connections,
                 &mut client_id,
@@ -352,6 +369,7 @@ mod tests {
                 &semaphore,
                 &mut connections,
                 &db,
+                &clients,
                 &shutdown_rx,
                 max_connections,
                 &mut client_id,
@@ -367,6 +385,8 @@ mod tests {
             .unwrap();
         assert_eq!(response, b"-ERR max number of clients reached\r\n");
         assert_eq!(connections.len(), 1);
+        assert_eq!(clients.lock().unwrap().len(), 1);
+        assert!(clients.lock().unwrap().contains_key(&1));
         assert_eq!(client_id, 1, "rejected connections must not consume an ID");
 
         shutdown_tx.send(true).unwrap();
@@ -374,6 +394,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(semaphore.available_permits(), 1);
+        assert!(clients.lock().unwrap().is_empty());
         let mut byte = [0];
         assert_eq!(
             timeout(Duration::from_secs(2), client.read(&mut byte))
@@ -391,6 +412,7 @@ mod tests {
             &semaphore,
             &mut connections,
             &db,
+            &clients,
             &shutdown_rx,
             max_connections,
             &mut client_id,

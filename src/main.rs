@@ -1,3 +1,4 @@
+mod client;
 mod command;
 mod config;
 mod connection;
