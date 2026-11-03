@@ -9,7 +9,7 @@ use tokio::time::timeout;
 use tracing::info;
 
 use crate::client::{ClientGuard, Clients};
-use crate::command::{ClientCommand, Command};
+use crate::command::Command;
 use crate::db::Db;
 use crate::executor;
 use crate::resp;
@@ -122,62 +122,10 @@ pub async fn handle(
                                 exit_quit = true;
                                 break;
                             }
-
-                            // Client 명령어를 다시 match해서 frame 분배
-                            Command::Client(client_command) => match client_command {
-                                ClientCommand::Id => resp::Frame::Integer(client_id as i64),
-
-                                ClientCommand::GetName => {
-                                    let name = {
-                                        let registry =
-                                            clients.lock().expect("clients lock poisoned");
-
-                                        registry
-                                            .get(&client_id)
-                                            .expect("current client must be registered")
-                                            .name
-                                            .clone()
-                                    }; // 이름을 복사하고 락 해제
-
-                                    match name {
-                                        Some(name) => resp::Frame::BulkString(name.into_bytes()),
-                                        None => resp::Frame::Null,
-                                    }
-                                }
-                                ClientCommand::SetName { name } => {
-                                    {
-                                        // 쓰기 락 획득
-                                        let mut registry =
-                                            clients.lock().expect("clients lock poisoned");
-
-                                        let client = registry
-                                            .get_mut(&client_id)
-                                            .expect("current client must be registered");
-                                        client.name =
-                                            if name.is_empty() { None } else { Some(name) };
-                                    }
-                                    resp::Frame::SimpleString("OK".to_owned())
-                                }
-
-                                ClientCommand::List => {
-                                    let snapshot = {
-                                        let registry =
-                                            clients.lock().expect("clients lock poisoned");
-                                        registry.clone()
-                                    }; // 목록을 복사한 뒤 락 해제
-
-                                    let mut output = String::new();
-                                    for (id, client) in snapshot {
-                                        output.push_str(&format!(
-                                            "id={} addr={} name={}\n",
-                                            id,
-                                            client.addr,
-                                            client.name.as_deref().unwrap_or("")
-                                        ));
-                                    }
-                                    resp::Frame::BulkString(output.into_bytes())
-                                }
-                            },
+                            // Client 명령어
+                            Command::Client(client_command) => {
+                                executor::execute_client(client_command, client_id, &clients)
+                            }
                             other => executor::execute(other, &db),
                         },
                         Err(error) => {

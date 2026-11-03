@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use crate::client::Clients;
+use crate::command::ClientCommand;
 use crate::db::ExpireError;
 use crate::{command::Command, db::Db, resp::Frame};
 
@@ -31,11 +33,60 @@ pub fn execute(command: Command, db: &Db) -> Frame {
         },
         Command::Ttl { key } => Frame::Integer(db.ttl(&key)),
         Command::Quit | Command::Client(_) => {
-            unreachable!("Command must be handled in connection.rs")
+            unreachable!("Command unreachable!")
         }
     }
 }
+pub fn execute_client(client_command: ClientCommand, client_id: u64, clients: &Clients) -> Frame {
+    match client_command {
+        ClientCommand::Id => Frame::Integer(client_id as i64),
+        ClientCommand::GetName => {
+            let name = {
+                let registry = clients.lock().expect("clients lock poisoned");
 
+                registry
+                    .get(&client_id)
+                    .expect("current client must be registered")
+                    .name
+                    .clone()
+            }; // 이름을 복사하고 락 해제
+
+            match name {
+                Some(name) => Frame::BulkString(name.into_bytes()),
+                None => Frame::Null,
+            }
+        }
+        ClientCommand::SetName { name } => {
+            {
+                // 쓰기 락 획득
+                let mut registry = clients.lock().expect("clients lock poisoned");
+
+                let client = registry
+                    .get_mut(&client_id)
+                    .expect("current client must be registered");
+                client.name = if name.is_empty() { None } else { Some(name) };
+            }
+            Frame::SimpleString("OK".to_owned())
+        }
+        ClientCommand::List => {
+            let snapshot = {
+                let registry = clients.lock().expect("clients lock poisoned");
+                registry.clone()
+            }; // 목록을 복사한 뒤 락 해제
+
+            let mut output = String::new();
+            for (id, client) in snapshot {
+                output.push_str(&format!(
+                    "id={} addr={} name={}\n",
+                    id,
+                    client.addr,
+                    client.name.as_deref().unwrap_or("")
+                ));
+            }
+            Frame::BulkString(output.into_bytes())
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::execute;
