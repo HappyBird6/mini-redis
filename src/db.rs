@@ -7,7 +7,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 use std::time::{Duration, Instant};
 
-const SHARD_COUNT: usize = 16;
+const SHARD_COUNT: usize = 64;
 const _: () = assert!(SHARD_COUNT.is_power_of_two());
 struct Entry {
     value: Vec<u8>,
@@ -1200,7 +1200,7 @@ mod tests {
         println!("write_percent,threads,run,ops_per_sec,p99_ns,worst_us");
         // 10: 읽기 위주, 50: 쓰기가 많은 경우
         for write_percent in [10, 50] {
-            for threads in [1, 2, 4, 8] {
+            for threads in [1, 2, 4, 8, 16] {
                 for run in 1..=RUNS {
                     let m = measure_contention(threads, write_percent);
                     println!(
