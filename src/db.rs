@@ -3,9 +3,12 @@
 #![allow(dead_code)]
 
 use std::collections::{BTreeSet, HashMap};
-use std::sync::{Arc, RwLock};
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::{Arc, RwLock, RwLockWriteGuard};
 use std::time::{Duration, Instant};
 
+const SHARD_COUNT: usize = 16;
+const _: () = assert!(SHARD_COUNT.is_power_of_two());
 struct Entry {
     value: Vec<u8>,
     expires_at: Option<Instant>,
@@ -29,12 +32,33 @@ struct State {
     expirations: BTreeSet<(Instant, String)>, //ttl 설정된 키들
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Db {
-    state: Arc<RwLock<State>>,
+    state: Arc<[RwLock<State>]>,
+}
+
+impl Default for Db {
+    fn default() -> Self {
+        Self {
+            state: (0..SHARD_COUNT)
+                .map(|_| RwLock::new(State::default()))
+                .collect(),
+        }
+    }
 }
 
 impl Db {
+    fn shard_index(&self, key: &str) -> usize {
+        let mut hasher = DefaultHasher::new();
+        key.hash(&mut hasher);
+        let hash_key = hasher.finish() as usize;
+        hash_key & (SHARD_COUNT - 1)
+    }
+
+    fn shard_for(&self, key: &str) -> &RwLock<State> {
+        &self.state[self.shard_index(key)]
+    }
+
     fn remove_if_expired(state: &mut State, key: &str, now: Instant) -> bool {
         let expired = state
             .entries
@@ -49,7 +73,7 @@ impl Db {
     }
 
     fn lock_and_remove_if_expired(&self, key: &str) {
-        let mut state = self.state.write().expect("db lock poisoned");
+        let mut state = self.shard_for(key).write().expect("db lock poisoned");
         Self::remove_if_expired(&mut state, key, Instant::now());
     }
 
@@ -58,7 +82,7 @@ impl Db {
             value,
             expires_at: None,
         };
-        let mut state = self.state.write().expect("db lock poisoned");
+        let mut state = self.shard_for(&key).write().expect("db lock poisoned");
         if let Some(at) = state
             .entries
             .insert(key.clone(), entry)
@@ -70,7 +94,7 @@ impl Db {
 
     pub fn get(&self, key: &str) -> Option<Vec<u8>> {
         let expired = {
-            let state = self.state.read().expect("db lock poisoned");
+            let state = self.shard_for(key).read().expect("db lock poisoned");
             match state.entries.get(key) {
                 None => return None,
                 Some(entry) => {
@@ -121,11 +145,24 @@ impl Db {
     반환은 개수라 usize, RESP 정수(i64) 변환은 executor에서 함
     */
     pub fn delete(&self, keys: &[String]) -> usize {
-        let mut state = self.state.write().expect("db lock poisoned");
-        let mut deleted: usize = 0;
         let now = Instant::now();
+        let mut deleted: usize = 0;
+        let mut shard_indices: BTreeSet<usize> = BTreeSet::new();
         for key in keys {
-            let success = Self::delete_with_locked_state(&mut state, key, now);
+            shard_indices.insert(self.shard_index(key));
+        }
+
+        let mut slots: Vec<Option<RwLockWriteGuard<State>>> =
+            (0..SHARD_COUNT).map(|_| None).collect();
+        for index in shard_indices {
+            slots[index] = Some(self.state[index].write().expect("db lock poisoned"));
+        }
+
+        for key in keys {
+            let state = slots[self.shard_index(key)]
+                .as_mut()
+                .expect("shard not locked");
+            let success = Self::delete_with_locked_state(state, key, now);
             if success {
                 deleted += 1;
             }
@@ -133,25 +170,33 @@ impl Db {
         deleted
     }
 
+    /*
+    만료된 키를 칸(shard)마다 돌며 최대 limit개까지 지우고 지운 개수를 반환
+    limit은 칸마다가 아니라 전체 합에 대한 상한 (server의 purge_until_done이 이 값으로 반복 여부를 판단)
+    칸 하나를 처리하는 동안만 그 칸의 쓰기 락을 잡고, 다음 칸으로 넘어가며 놓음
+        만료된 키는 지우기 전에도 get/ttl에서 이미 없는 키로 보이므로
+        칸 사이에 락을 놓아도 다른 요청이 중간 상태를 볼 일이 없음
+    */
     pub fn purge_expired(&self, limit: usize) -> usize {
-        let mut state = self.state.write().expect("db lock poisoned");
         let now = Instant::now();
-
-        let State {
-            entries,
-            expirations,
-        } = &mut *state;
         let mut removed = 0;
-        while let Some((at, _)) = expirations.first() {
-            if *at > now {
-                break;
-            }
+        let iter = self.state.iter();
+        for shard in iter {
             if removed >= limit {
                 break;
             }
-            let (_, key) = expirations.pop_first().unwrap();
-            removed += 1;
-            entries.remove(&key);
+            let mut state = shard.write().expect("db lock poisoned");
+            while let Some((at, _)) = state.expirations.first() {
+                if *at > now {
+                    break;
+                }
+                if removed >= limit {
+                    break;
+                }
+                let (_, key) = state.expirations.pop_first().unwrap();
+                removed += 1;
+                state.entries.remove(&key);
+            }
         }
         removed
     }
@@ -163,7 +208,7 @@ impl Db {
         }
 
         // 쓰기락 획득
-        let mut state = self.state.write().expect("db lock poisoned");
+        let mut state = self.shard_for(key).write().expect("db lock poisoned");
 
         // 종료시간 변환
         let now = Instant::now();
@@ -191,7 +236,7 @@ impl Db {
 
     pub fn ttl(&self, key: &str) -> i64 {
         let expired = {
-            let state = self.state.read().expect("db lock poisoned");
+            let state = self.shard_for(key).read().expect("db lock poisoned");
             let now = Instant::now();
 
             match state.entries.get(key) {
@@ -220,7 +265,7 @@ impl Db {
 // executor 테스트에서도 쓰기 위해 크레이트 안에 공개합니다.
 #[cfg(test)]
 pub(crate) fn insert_with_expiration(db: &Db, key: &str, value: &[u8], expires_at: Instant) {
-    let mut state = db.state.write().expect("db lock poisoned");
+    let mut state = db.shard_for(key).write().expect("db lock poisoned");
     let previous = state.entries.insert(
         key.to_owned(),
         Entry {
@@ -238,10 +283,62 @@ pub(crate) fn insert_with_expiration(db: &Db, key: &str, value: &[u8], expires_a
 
 #[cfg(test)]
 mod tests {
-    use super::{insert_with_expiration, Db, ExpireError};
+    use super::{insert_with_expiration, Db, ExpireError, State};
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, RwLockReadGuard};
     use std::time::{Duration, Instant};
+
+    // ---- 칸(shard) 내부를 들여다보는 도우미 ----
+    // 키마다 들어 있는 칸이 다르므로 키로 칸을 찾아 확인하거나, 전체 칸을 합산합니다.
+
+    // 키가 들어 있는 칸의 읽기 락을 잡습니다.
+    fn shard_of<'a>(db: &'a Db, key: &str) -> RwLockReadGuard<'a, State> {
+        db.shard_for(key).read().expect("db lock poisoned")
+    }
+
+    fn contains(db: &Db, key: &str) -> bool {
+        shard_of(db, key).entries.contains_key(key)
+    }
+
+    fn expires_at_of(db: &Db, key: &str) -> Option<Instant> {
+        shard_of(db, key).entries[key].expires_at
+    }
+
+    // 모든 칸의 항목 수 합계
+    fn entry_count(db: &Db) -> usize {
+        db.state
+            .iter()
+            .map(|shard| shard.read().unwrap().entries.len())
+            .sum()
+    }
+
+    // 모든 칸의 만료 인덱스 항목 수 합계
+    fn index_count(db: &Db) -> usize {
+        db.state
+            .iter()
+            .map(|shard| shard.read().unwrap().expirations.len())
+            .sum()
+    }
+
+    // 같은 칸에 들어가는 키를 count개 고릅니다.
+    fn keys_in_same_shard(db: &Db, count: usize) -> Vec<String> {
+        let target = db.shard_index("k0");
+        (0..)
+            .map(|i| format!("k{i}"))
+            .filter(|key| db.shard_index(key) == target)
+            .take(count)
+            .collect()
+    }
+
+    // 서로 다른 칸에 들어가는 두 키를 고릅니다.
+    fn keys_in_different_shards(db: &Db) -> (String, String) {
+        let first = "a".to_owned();
+        let second = (0..)
+            .map(|i| format!("b{i}"))
+            .find(|key| db.shard_index(key) != db.shard_index(&first))
+            .unwrap();
+        (first, second)
+    }
 
     #[test]
     fn ttl_returns_minus_two_for_missing_and_expired_keys() {
@@ -276,13 +373,13 @@ mod tests {
         let db = Db::default();
         db.set("key".to_owned(), b"keep".to_vec());
         assert_eq!(db.set_expired_time("key", 3600), Ok(true));
-        let deadline = db.state.read().unwrap().entries["key"].expires_at.unwrap();
+        let deadline = expires_at_of(&db, "key").unwrap();
 
         // 실제 호출은 두 관측 시점 사이에서 실행되므로 해당 범위에 있어야 합니다.
         let before = Instant::now();
         let actual = db.ttl("key");
         let after = Instant::now();
-        let state = db.state.read().unwrap();
+        let state = shard_of(&db, "key");
         let entries = &state.entries;
         let entry = &entries["key"];
         let upper = deadline.saturating_duration_since(before).as_secs() as i64 + 1;
@@ -306,13 +403,9 @@ mod tests {
         assert_eq!(db.purge_expired(usize::MAX), 2);
 
         // get()은 삭제 전에도 None을 반환하므로 실제 맵에서 제거됐는지 확인합니다.
-        {
-            let state = db.state.read().expect("db lock poisoned");
-            let entries = &state.entries;
-            assert!(!entries.contains_key("expired_a"));
-            assert!(!entries.contains_key("expired_b"));
-            assert_eq!(entries.len(), 2);
-        } // 다음 purge 호출 전에 읽기 락을 해제합니다.
+        assert!(!contains(&db, "expired_a"));
+        assert!(!contains(&db, "expired_b"));
+        assert_eq!(entry_count(&db), 2);
 
         assert_eq!(db.get("future"), Some(b"keep".to_vec()));
         assert_eq!(db.get("permanent"), Some(b"keep forever".to_vec()));
@@ -323,12 +416,7 @@ mod tests {
     fn purge_expired_on_empty_db_returns_zero() {
         let db = Db::default();
         assert_eq!(db.purge_expired(usize::MAX), 0);
-        assert!(db
-            .state
-            .read()
-            .expect("db lock poisoned")
-            .entries
-            .is_empty());
+        assert_eq!(entry_count(&db), 0);
     }
 
     #[test]
@@ -368,9 +456,7 @@ mod tests {
         assert_eq!(db.get("language"), Some(b"rust".to_vec()));
 
         assert_eq!(db.set_expired_time("language", 1), Ok(true));
-        let expires_at = db.state.read().unwrap().entries["language"]
-            .expires_at
-            .unwrap();
+        let expires_at = expires_at_of(&db, "language").unwrap();
 
         // DB가 std::time::Instant를 사용하므로 실제 시간을 기다립니다.
         // 대기하는 동안에는 위 블록의 쓰기 락이 해제된 상태입니다.
@@ -381,12 +467,7 @@ mod tests {
         // purge를 호출하지 않아도 GET 자체가 만료된 값을 숨겨야 합니다.
         assert_eq!(db.get("language"), None);
         // 만료된 키는 읽는 순간 삭제됩니다.
-        assert!(!db
-            .state
-            .read()
-            .expect("db lock poisoned")
-            .entries
-            .contains_key("language"));
+        assert!(!contains(&db, "language"));
     }
 
     #[test]
@@ -400,15 +481,13 @@ mod tests {
             let before = Instant::now();
             assert_eq!(db.set_expired_time("language", seconds), Ok(true));
             let after = Instant::now();
-            let state = db.state.read().unwrap();
-            let entries = &state.entries;
-            let deadline = entries["language"].expires_at.unwrap();
+            let deadline = expires_at_of(&db, "language").unwrap();
             let duration = Duration::from_secs(seconds as u64);
             assert!(deadline >= before + duration);
             assert!(deadline <= after + duration);
-            assert_eq!(entries["language"].value, b"rust");
-            assert_eq!(entries["other"].value, b"keep");
-            assert_eq!(entries["other"].expires_at, None);
+            assert_eq!(shard_of(&db, "language").entries["language"].value, b"rust");
+            assert_eq!(shard_of(&db, "other").entries["other"].value, b"keep");
+            assert_eq!(expires_at_of(&db, "other"), None);
         }
     }
 
@@ -416,7 +495,7 @@ mod tests {
     fn set_expired_time_does_not_create_missing_key() {
         let db = Db::default();
         assert_eq!(db.set_expired_time("missing", 10), Ok(false));
-        assert!(db.state.read().unwrap().entries.is_empty());
+        assert_eq!(entry_count(&db), 0);
     }
 
     #[test]
@@ -428,7 +507,7 @@ mod tests {
         assert_eq!(db.set_expired_time("expired", 3600), Ok(false));
         assert_eq!(db.get("expired"), None);
         // 되살리지 않고 삭제만 합니다.
-        assert!(!db.state.read().unwrap().entries.contains_key("expired"));
+        assert!(!contains(&db, "expired"));
     }
 
     #[test]
@@ -442,7 +521,7 @@ mod tests {
         );
 
         assert_eq!(db.get("expired"), None);
-        assert!(!db.state.read().unwrap().entries.contains_key("expired"));
+        assert!(!contains(&db, "expired"));
         assert_eq!(db.purge_expired(usize::MAX), 0);
     }
 
@@ -457,7 +536,7 @@ mod tests {
         );
 
         assert_eq!(db.ttl("expired"), -2);
-        assert!(!db.state.read().unwrap().entries.contains_key("expired"));
+        assert!(!contains(&db, "expired"));
         assert_eq!(db.purge_expired(usize::MAX), 0);
     }
 
@@ -494,13 +573,17 @@ mod tests {
                     Err(ExpireError::InvalidTime)
                 );
             }
-            let state = db.state.read().unwrap();
-            let entries = &state.entries;
-            assert_eq!(entries.len(), 2);
-            assert_eq!(entries["permanent"].expires_at, None);
-            assert_eq!(entries["temporary"].expires_at, Some(deadline));
-            assert_eq!(entries["permanent"].value, b"keep");
-            assert_eq!(entries["temporary"].value, b"keep");
+            assert_eq!(entry_count(&db), 2);
+            assert_eq!(expires_at_of(&db, "permanent"), None);
+            assert_eq!(expires_at_of(&db, "temporary"), Some(deadline));
+            assert_eq!(
+                shard_of(&db, "permanent").entries["permanent"].value,
+                b"keep"
+            );
+            assert_eq!(
+                shard_of(&db, "temporary").entries["temporary"].value,
+                b"keep"
+            );
         }
     }
 
@@ -515,7 +598,7 @@ mod tests {
         let before = Instant::now().checked_add(duration);
         let result = db.set_expired_time("key", i64::MAX);
         let after = Instant::now().checked_add(duration);
-        let state = db.state.read().unwrap();
+        let state = shard_of(&db, "key");
         let entries = &state.entries;
         assert_eq!(entries["key"].value, b"keep");
         match result {
@@ -557,9 +640,7 @@ mod tests {
             db.set("language".to_owned(), b"rust".to_vec());
 
             assert_eq!(db.get("language"), Some(b"rust".to_vec()));
-            let state = db.state.read().expect("db lock poisoned");
-            let entries = &state.entries;
-            assert!(entries.get("language").unwrap().expires_at.is_none());
+            assert!(expires_at_of(&db, "language").is_none());
         }
     }
 
@@ -589,30 +670,18 @@ mod tests {
 
         // purge 전이라 맵에는 남아 있지만 논리적으로는 없는 키이므로 개수에 세지 않습니다.
         assert_eq!(db.delete(&keys(&["expired"])), 0);
-        assert!(!db
-            .state
-            .read()
-            .expect("db lock poisoned")
-            .entries
-            .contains_key("expired"));
+        assert!(!contains(&db, "expired"));
 
         // 아직 만료되지 않은 키는 기존처럼 삭제에 성공합니다.
         assert_eq!(db.delete(&keys(&["future"])), 1);
-        assert!(db
-            .state
-            .read()
-            .expect("db lock poisoned")
-            .entries
-            .is_empty());
+        assert_eq!(entry_count(&db), 0);
     }
 
     // ---- 만료 인덱스(expirations) 동기화 테스트 ----
 
     // 인덱스에 키가 등록돼 있는지 확인합니다.
     fn in_index(db: &Db, key: &str) -> bool {
-        db.state
-            .read()
-            .expect("db lock poisoned")
+        shard_of(db, key)
             .expirations
             .iter()
             .any(|(_, indexed)| indexed == key)
@@ -629,7 +698,7 @@ mod tests {
 
         // 같은 키에 EXPIRE를 다시 해도 한 번만 등록됩니다.
         assert_eq!(db.set_expired_time("key", 7200), Ok(true));
-        assert_eq!(db.state.read().unwrap().expirations.len(), 1);
+        assert_eq!(index_count(&db), 1);
     }
 
     #[test]
@@ -642,7 +711,7 @@ mod tests {
             db.set_expired_time("permanent", 0),
             Err(ExpireError::InvalidTime)
         );
-        assert!(db.state.read().unwrap().expirations.is_empty());
+        assert_eq!(index_count(&db), 0);
     }
 
     #[test]
@@ -667,7 +736,7 @@ mod tests {
         assert_eq!(db.delete(&keys(&["live"])), 1);
         // 만료된 키는 개수에 세지 않지만 인덱스에서는 정리돼야 합니다.
         assert_eq!(db.delete(&keys(&["expired"])), 0);
-        assert!(db.state.read().unwrap().expirations.is_empty());
+        assert_eq!(index_count(&db), 0);
     }
 
     #[test]
@@ -679,7 +748,7 @@ mod tests {
 
         assert_eq!(db.get("by_get"), None);
         assert_eq!(db.ttl("by_ttl"), -2);
-        assert!(db.state.read().unwrap().expirations.is_empty());
+        assert_eq!(index_count(&db), 0);
     }
 
     #[test]
@@ -707,11 +776,10 @@ mod tests {
 
         assert_eq!(db.purge_expired(usize::MAX), 2);
 
-        let state = db.state.read().unwrap();
         // 아직 만료되지 않은 TTL 키만 인덱스에 남고, TTL 없는 키는 처음부터 없습니다.
-        assert_eq!(state.expirations.len(), 1);
-        assert!(state.expirations.iter().any(|(_, key)| key == "future"));
-        assert_eq!(state.entries.len(), 2);
+        assert_eq!(index_count(&db), 1);
+        assert!(in_index(&db, "future"));
+        assert_eq!(entry_count(&db), 2);
     }
 
     #[test]
@@ -722,9 +790,9 @@ mod tests {
         }
 
         // TTL 키가 없으면 인덱스가 비어 있어 아무것도 지우지 않습니다.
-        assert!(db.state.read().unwrap().expirations.is_empty());
+        assert_eq!(index_count(&db), 0);
         assert_eq!(db.purge_expired(usize::MAX), 0);
-        assert_eq!(db.state.read().unwrap().entries.len(), 100);
+        assert_eq!(entry_count(&db), 100);
     }
 
     // ---- 여러 키 삭제(DEL k1 k2 ...) 테스트 ----
@@ -745,11 +813,29 @@ mod tests {
         // 없는 키와 만료된 키는 개수에 세지 않습니다.
         assert_eq!(db.delete(&keys(&["a", "missing", "b", "expired"])), 2);
 
-        let state = db.state.read().unwrap();
-        assert_eq!(state.entries.len(), 1);
-        assert!(state.entries.contains_key("other"));
+        assert_eq!(entry_count(&db), 1);
+        assert!(contains(&db, "other"));
         // TTL이 있던 키는 살아 있었든 만료됐든 인덱스에서 빠져야 합니다.
-        assert!(state.expirations.is_empty());
+        assert_eq!(index_count(&db), 0);
+    }
+
+    #[test]
+    fn delete_removes_keys_spread_across_shards() {
+        let db = Db::default();
+        let (a, b) = keys_in_different_shards(&db);
+        let same = keys_in_same_shard(&db, 2);
+        for key in [&a, &b, &same[0], &same[1]] {
+            db.set(key.clone(), b"v".to_vec());
+        }
+        db.set("other".to_owned(), b"keep".to_vec());
+
+        // 여러 칸에 걸친 키와 같은 칸에 모인 키를 한 번에 지웁니다.
+        let targets = vec![a, b, same[0].clone(), same[1].clone()];
+        assert_eq!(db.delete(&targets), 4);
+        for key in &targets {
+            assert!(!contains(&db, key));
+        }
+        assert_eq!(entry_count(&db), 1);
     }
 
     #[test]
@@ -776,28 +862,39 @@ mod tests {
         const ROUNDS: usize = 20_000;
         let db = Db::default();
         let done = Arc::new(AtomicBool::new(false));
+        // 두 키가 서로 다른 칸에 있어야 여러 칸에 걸친 DEL을 검증할 수 있습니다.
+        let (a, b) = keys_in_different_shards(&db);
 
         // a를 먼저, b를 나중에 SET하므로 정상 상태에서는 "a 없음 + b 있음"이 나올 수 없습니다.
         // DEL a b가 키마다 따로 락을 잡으면 a만 지워진 순간에 그 상태가 보입니다.
         let writer = {
             let db = db.clone();
             let done = Arc::clone(&done);
+            let (a, b) = (a.clone(), b.clone());
             std::thread::spawn(move || {
-                let targets = keys(&["a", "b"]);
+                let targets = vec![a.clone(), b.clone()];
                 for _ in 0..ROUNDS {
-                    db.set("a".to_owned(), b"1".to_vec());
-                    db.set("b".to_owned(), b"2".to_vec());
+                    db.set(a.clone(), b"1".to_vec());
+                    db.set(b.clone(), b"2".to_vec());
                     db.delete(&targets);
                 }
                 done.store(true, Ordering::Release);
             })
         };
 
+        // 두 칸의 읽기 락을 DEL과 같은 순서(작은 번호부터)로 함께 잡아야
+        // 읽는 쪽이 두 키를 같은 순간의 상태로 확인할 수 있습니다.
+        let (index_a, index_b) = (db.shard_index(&a), db.shard_index(&b));
         let mut half_deleted = 0_usize;
         while !done.load(Ordering::Acquire) {
-            // 두 키를 한 번의 읽기 락으로 확인해야 읽는 쪽의 경쟁이 섞이지 않습니다.
-            let state = db.state.read().unwrap();
-            if !state.entries.contains_key("a") && state.entries.contains_key("b") {
+            let low = db.state[index_a.min(index_b)].read().unwrap();
+            let high = db.state[index_a.max(index_b)].read().unwrap();
+            let (shard_a, shard_b) = if index_a < index_b {
+                (&low, &high)
+            } else {
+                (&high, &low)
+            };
+            if !shard_a.entries.contains_key(&a) && shard_b.entries.contains_key(&b) {
                 half_deleted += 1;
             }
         }
@@ -818,38 +915,54 @@ mod tests {
 
         // 상한을 꽉 채워 지우면 아직 남은 키가 있을 수 있다는 신호입니다.
         assert_eq!(db.purge_expired(2), 2);
-        {
-            let state = db.state.read().unwrap();
-            assert_eq!(state.entries.len(), 3);
-            assert_eq!(state.expirations.len(), 3);
-        }
+        assert_eq!(entry_count(&db), 3);
+        assert_eq!(index_count(&db), 3);
 
         // 다시 호출하면 남은 키를 이어서 지우고, 상한보다 적게 지우면 다 비운 것입니다.
         assert_eq!(db.purge_expired(2), 2);
         assert_eq!(db.purge_expired(2), 1);
         assert_eq!(db.purge_expired(2), 0);
 
-        let state = db.state.read().unwrap();
-        assert!(state.entries.is_empty());
-        assert!(state.expirations.is_empty());
+        assert_eq!(entry_count(&db), 0);
+        assert_eq!(index_count(&db), 0);
     }
 
     #[test]
-    fn purge_expired_removes_earliest_expiration_first() {
+    fn purge_expired_limit_is_shared_across_shards() {
+        let db = Db::default();
+        let past = Instant::now() - Duration::from_secs(1);
+        let (a, b) = keys_in_different_shards(&db);
+        let same = keys_in_same_shard(&db, 2);
+        for key in [&a, &b, &same[0], &same[1]] {
+            insert_with_expiration(&db, key, b"v", past);
+        }
+
+        // limit은 칸마다가 아니라 한 번 호출 전체의 상한입니다.
+        assert_eq!(db.purge_expired(3), 3);
+        assert_eq!(index_count(&db), 1);
+        assert_eq!(db.purge_expired(3), 1);
+        assert_eq!(entry_count(&db), 0);
+    }
+
+    #[test]
+    fn purge_expired_removes_earliest_expiration_first_within_shard() {
+        // 칸끼리는 번호 순서로 돌기 때문에 이른 만료 순서는 같은 칸 안에서만 보장됩니다.
         let db = Db::default();
         let now = Instant::now();
-        insert_with_expiration(&db, "newest", b"v", now - Duration::from_secs(1));
-        insert_with_expiration(&db, "oldest", b"v", now - Duration::from_secs(3));
-        insert_with_expiration(&db, "middle", b"v", now - Duration::from_secs(2));
+        let keys = keys_in_same_shard(&db, 3);
+        let (newest, oldest, middle) = (&keys[0], &keys[1], &keys[2]);
+        insert_with_expiration(&db, newest, b"v", now - Duration::from_secs(1));
+        insert_with_expiration(&db, oldest, b"v", now - Duration::from_secs(3));
+        insert_with_expiration(&db, middle, b"v", now - Duration::from_secs(2));
 
         assert_eq!(db.purge_expired(1), 1);
-        assert!(!in_index(&db, "oldest"));
-        assert!(in_index(&db, "middle"));
-        assert!(in_index(&db, "newest"));
+        assert!(!in_index(&db, oldest));
+        assert!(in_index(&db, middle));
+        assert!(in_index(&db, newest));
 
         assert_eq!(db.purge_expired(1), 1);
-        assert!(!in_index(&db, "middle"));
-        assert!(in_index(&db, "newest"));
+        assert!(!in_index(&db, middle));
+        assert!(in_index(&db, newest));
     }
 
     #[test]
@@ -878,7 +991,7 @@ mod tests {
 
         assert_eq!(db.purge_expired(0), 0);
         assert!(in_index(&db, "expired"));
-        assert_eq!(db.state.read().unwrap().entries.len(), 1);
+        assert_eq!(entry_count(&db), 1);
     }
 
     // ---- 측정용 테스트 ----
@@ -931,7 +1044,7 @@ mod tests {
             worst_get = worst_get.max(start.elapsed());
         }
         let mut calls = handle.join().unwrap();
-        assert!(db.state.read().unwrap().expirations.is_empty());
+        assert_eq!(index_count(&db), 0);
 
         calls.sort();
         PurgeMeasurement {
