@@ -5,6 +5,7 @@ mod connection;
 mod db;
 mod executor;
 mod logging;
+mod pubsub;
 mod resp;
 mod server;
 

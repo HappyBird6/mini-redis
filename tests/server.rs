@@ -1,3 +1,4 @@
+use redis::Commands;
 use std::io::Read;
 use std::io::Write;
 use std::process::Child;
@@ -56,6 +57,139 @@ async fn assert_response(socket: &mut TcpStream, request: &[u8], expected: &[u8]
     })
     .await
     .expect("server response timed out");
+}
+
+// 서버의 RESP 파서를 재사용하지 않고 외부 redis-rs 클라이언트로 호환성을 검증한다.
+fn redis_connection(address: std::net::SocketAddr) -> redis::Connection {
+    let client = redis::Client::open(format!("redis://{address}/?protocol=resp2")).unwrap();
+    let connection = client
+        .get_connection_with_timeout(Duration::from_secs(2))
+        .unwrap();
+    connection
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    connection
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    connection
+}
+
+fn assert_pubsub_message(pubsub: &mut redis::PubSub<'_>, channel: &[u8], payload: &[u8]) {
+    let message = pubsub.get_message().unwrap();
+    assert_eq!(message.get_channel::<Vec<u8>>().unwrap(), channel);
+    assert_eq!(message.get_payload::<Vec<u8>>().unwrap(), payload);
+    assert!(message.get_pattern::<Option<String>>().unwrap().is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn redis_rs_pubsub_fans_out_and_unsubscribe_preserves_other_channels() {
+    let (_server, address) = start_test_server().await;
+    tokio::task::spawn_blocking(move || {
+        let mut publisher = redis_connection(address);
+        let mut connection_a = redis_connection(address);
+        let mut connection_b = redis_connection(address);
+        let mut a = connection_a.as_pubsub();
+        let mut b = connection_b.as_pubsub();
+        a.subscribe("news").unwrap();
+        a.subscribe("chat").unwrap();
+        b.subscribe("news").unwrap();
+
+        let count: i64 = publisher.publish("news", "hello").unwrap();
+        assert_eq!(count, 2);
+        assert_pubsub_message(&mut a, b"news", b"hello");
+        assert_pubsub_message(&mut b, b"news", b"hello");
+        assert_eq!(a.ping::<Vec<String>>().unwrap(), vec!["pong", ""]);
+
+        a.unsubscribe("news").unwrap();
+        let count: i64 = publisher.publish("news", "only-b").unwrap();
+        assert_eq!(count, 1);
+        assert_pubsub_message(&mut b, b"news", b"only-b");
+        let count: i64 = publisher.publish("chat", "only-a").unwrap();
+        assert_eq!(count, 1);
+        // news 해제가 실패했다면 여기서 news 메시지가 먼저 나와 실패한다.
+        assert_pubsub_message(&mut a, b"chat", b"only-a");
+
+        a.unsubscribe("chat").unwrap();
+        b.unsubscribe("news").unwrap();
+        // 인자 없는 전체 해제는 구독이 없는 경우에도 확인 응답을 반환해야 한다.
+        a.unsubscribe(Vec::<String>::new()).unwrap();
+        assert_eq!(a.ping::<String>().unwrap(), "PONG");
+        let count: i64 = publisher.publish("news", "nobody").unwrap();
+        assert_eq!(count, 0);
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn redis_rs_unsubscribe_preserves_published_messages_and_allows_resubscribe() {
+    let (_server, address) = start_test_server().await;
+    tokio::task::spawn_blocking(move || {
+        let mut publisher = redis_connection(address);
+        let mut connection = redis_connection(address);
+        let mut subscriber = connection.as_pubsub();
+        subscriber.subscribe("news").unwrap();
+        subscriber.subscribe("news").unwrap();
+        for payload in ["first", "second"] {
+            let count: i64 = publisher.publish("news", payload).unwrap();
+            assert_eq!(
+                count, 1,
+                "duplicate subscriptions must not duplicate delivery"
+            );
+        }
+        // redis-rs는 해제 확인 응답보다 앞에 도착한 메시지를 보관한다.
+        subscriber.unsubscribe("news").unwrap();
+        assert_pubsub_message(&mut subscriber, b"news", b"first");
+        assert_pubsub_message(&mut subscriber, b"news", b"second");
+        let count: i64 = publisher.publish("news", "after-unsubscribe").unwrap();
+        assert_eq!(count, 0);
+
+        subscriber.subscribe("news").unwrap();
+        let count: i64 = publisher.publish("news", "new-subscription").unwrap();
+        assert_eq!(count, 1);
+        assert_pubsub_message(&mut subscriber, b"news", b"new-subscription");
+        subscriber.unsubscribe(Vec::<String>::new()).unwrap();
+        assert_eq!(subscriber.ping::<String>().unwrap(), "PONG");
+        drop(subscriber);
+        drop(connection);
+
+        let mut reconnect = redis_connection(address);
+        let mut subscriber = reconnect.as_pubsub();
+        subscriber.subscribe("news").unwrap();
+        let count: i64 = publisher.publish("news", "reconnected").unwrap();
+        assert_eq!(count, 1);
+        assert_pubsub_message(&mut subscriber, b"news", b"reconnected");
+        subscriber.unsubscribe("news").unwrap();
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn redis_rs_pubsub_preserves_binary_channels_and_large_and_empty_payloads() {
+    let (_server, address) = start_test_server().await;
+    tokio::task::spawn_blocking(move || {
+        let mut publisher = redis_connection(address);
+        let mut connection = redis_connection(address);
+        let mut subscriber = connection.as_pubsub();
+        let channel = b"\xff\x00news";
+        let payload: Vec<u8> = (0..16384).map(|index| (index % 256) as u8).collect();
+        subscriber.subscribe(channel.as_slice()).unwrap();
+        subscriber.subscribe(b"".as_slice()).unwrap();
+        let count: i64 = publisher
+            .publish(channel.as_slice(), payload.as_slice())
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_pubsub_message(&mut subscriber, channel, &payload);
+        let count: i64 = publisher.publish(b"".as_slice(), b"".as_slice()).unwrap();
+        assert_eq!(count, 1);
+        assert_pubsub_message(&mut subscriber, b"", b"");
+        subscriber.unsubscribe(channel.as_slice()).unwrap();
+        subscriber.unsubscribe(b"".as_slice()).unwrap();
+        assert_eq!(subscriber.ping::<String>().unwrap(), "PONG");
+    })
+    .await
+    .unwrap();
 }
 
 async fn read_client_id(socket: &mut TcpStream) -> i64 {

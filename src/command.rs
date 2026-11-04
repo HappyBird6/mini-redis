@@ -15,8 +15,14 @@ pub enum Command {
     Ttl { key: String },
     Quit,
     Client(ClientCommand),
+    PubSub(PubSubCommand),
 }
-
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PubSubCommand {
+    Subscribe { channels: Vec<Vec<u8>> },
+    Unsubscribe { channels: Vec<Vec<u8>> },
+    Publish { channel: Vec<u8>, message: Vec<u8> },
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientCommand {
     Id,
@@ -204,6 +210,38 @@ impl Command {
                 }
                 _ => Err(CommandError::UnknownCommand),
             }
+        } else if command.eq_ignore_ascii_case(b"SUBSCRIBE") {
+            /*
+            @@@ SUBSCRIBE @@@
+             */
+            if args.len() == 0 {
+                return Err(CommandError::WrongArity);
+            }
+            let channels = args
+                .map(into_bytes)
+                .collect::<Result<Vec<_>, CommandError>>()?;
+
+            Ok(Self::PubSub(PubSubCommand::Subscribe { channels }))
+        } else if command.eq_ignore_ascii_case(b"UNSUBSCRIBE") {
+            /*
+            @@@ UNSUBSCRIBE @@@
+             */
+            let channels = args
+                .map(into_bytes)
+                .collect::<Result<Vec<_>, CommandError>>()?;
+
+            Ok(Self::PubSub(PubSubCommand::Unsubscribe { channels }))
+        } else if command.eq_ignore_ascii_case(b"PUBLISH") {
+            /*
+            @@@ PUBLISH @@@
+             */
+            if args.len() != 2 {
+                return Err(CommandError::WrongArity);
+            }
+            let channel = next_bytes(&mut args)?;
+            let message = next_bytes(&mut args)?;
+
+            Ok(Self::PubSub(PubSubCommand::Publish { channel, message }))
         } else {
             Err(CommandError::UnknownCommand)
         }
@@ -212,7 +250,7 @@ impl Command {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClientCommand, Command, CommandError};
+    use super::{ClientCommand, Command, CommandError, PubSubCommand};
     use crate::resp::Frame;
 
     // 명령 이름과 인자를 BulkString 배열로 구성
@@ -223,6 +261,72 @@ mod tests {
                 .map(|part| Frame::BulkString(part.to_vec()))
                 .collect(),
         )
+    }
+
+    #[test]
+    fn parses_pubsub_commands_and_preserves_binary_arguments() {
+        let channel = b"\xff\x00";
+        let payload = b"\x00\xfe\r\n";
+        for name in [b"SUBSCRIBE".as_slice(), b"sUbScRiBe"] {
+            assert_eq!(
+                Command::from_frame(request(&[name, b"news", channel, b""])),
+                Ok(Command::PubSub(PubSubCommand::Subscribe {
+                    channels: vec![b"news".to_vec(), channel.to_vec(), Vec::new()],
+                }))
+            );
+        }
+        assert_eq!(
+            Command::from_frame(request(&[b"uNsUbScRiBe", channel, b"news"])),
+            Ok(Command::PubSub(PubSubCommand::Unsubscribe {
+                channels: vec![channel.to_vec(), b"news".to_vec()],
+            }))
+        );
+        assert_eq!(
+            Command::from_frame(request(&[b"UNSUBSCRIBE"])),
+            Ok(Command::PubSub(PubSubCommand::Unsubscribe {
+                channels: vec![]
+            }))
+        );
+        assert_eq!(
+            Command::from_frame(request(&[b"pUbLiSh", channel, payload])),
+            Ok(Command::PubSub(PubSubCommand::Publish {
+                channel: channel.to_vec(),
+                message: payload.to_vec(),
+            }))
+        );
+    }
+
+    #[test]
+    fn rejects_pubsub_wrong_arity_and_non_bulk_arguments() {
+        for parts in [
+            vec![b"SUBSCRIBE".as_slice()],
+            vec![b"PUBLISH".as_slice()],
+            vec![b"PUBLISH".as_slice(), b"news"],
+            vec![b"PUBLISH".as_slice(), b"news", b"hello", b"extra"],
+        ] {
+            assert_eq!(
+                Command::from_frame(request(&parts)),
+                Err(CommandError::WrongArity)
+            );
+        }
+        for command in [b"SUBSCRIBE".as_slice(), b"UNSUBSCRIBE", b"PUBLISH"] {
+            let mut args = vec![Frame::BulkString(command.to_vec()), Frame::Integer(1)];
+            if command == b"PUBLISH" {
+                args.push(Frame::BulkString(b"hello".to_vec()));
+            }
+            assert_eq!(
+                Command::from_frame(Frame::Array(args)),
+                Err(CommandError::ExpectedBulkString)
+            );
+        }
+        assert_eq!(
+            Command::from_frame(Frame::Array(vec![
+                Frame::BulkString(b"PUBLISH".to_vec()),
+                Frame::BulkString(b"news".to_vec()),
+                Frame::Null,
+            ])),
+            Err(CommandError::ExpectedBulkString)
+        );
     }
 
     #[test]

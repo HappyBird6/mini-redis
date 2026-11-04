@@ -1,26 +1,28 @@
+use std::collections::HashSet;
 use std::io::{self};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::time::timeout;
 use tracing::info;
 
 use crate::client::{ClientGuard, Clients};
-use crate::command::Command;
+use crate::command::{Command, PubSubCommand};
 use crate::db::Db;
 use crate::executor;
+use crate::pubsub::{PubSub, PubSubMessage, Subscriber, SubscriptionGuard};
 use crate::resp;
-
 const MAX_PENDING_READ_BYTES: usize = 2 * 1024 * 1024; // 2 MiB
 const MAX_PENDING_WRITE_BYTES: usize = 4 * 1024; // 4 KiB 묶음 전송 기준 (엄격한 메모리 상한 아님)
 const READ_TIMEOUT: Duration = Duration::from_secs(60); // 읽기 타임아웃 60초
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10); // 쓰기 타임아웃 10초
+const MAX_PENDING_PUBSUB_MESSAGES: usize = 128; // 메세지 최대 용량
 
 // 함수 실행 자체를 추적, socket, db, shutdown, clients는 로그필드에서 제외
-#[tracing::instrument(skip(socket, db, shutdown, clients), fields(peer = %peer))]
+#[tracing::instrument(skip(socket, db, shutdown, clients, pubsub), fields(peer = %peer))]
 pub async fn handle(
     peer: SocketAddr,
     mut socket: TcpStream,
@@ -28,6 +30,7 @@ pub async fn handle(
     clients: Clients,
     mut shutdown: watch::Receiver<bool>,
     client_id: u64,
+    pubsub: &PubSub,
 ) -> io::Result<()> {
     info!("client connected");
 
@@ -36,6 +39,21 @@ pub async fn handle(
     // 종료시 clients에서 삭제를 하기 위한 client_guard 생성, 동시에 clients에 현재 client 등록
     // handle 끝나면 clientguard 구조체에서 구현한 drop이 실행됨
     let _client_guard = ClientGuard::register(Arc::clone(&clients), client_id, peer);
+    /*
+    PUBSUB 시작
+     */
+    // pubsub_guard 생성
+    let _subscription_guard = SubscriptionGuard::register(Arc::clone(pubsub), client_id);
+    // 메세지 큐 사이즈 포함해 리시버 생성
+    let (sender, mut receiver) = mpsc::channel::<PubSubMessage>(MAX_PENDING_PUBSUB_MESSAGES);
+    // 연결종료 리시버 생성
+    let (disconnect, mut disconnect_receiver) = watch::channel(false);
+
+    let subscriber = Subscriber { sender, disconnect };
+    let mut subscriptions = HashSet::new();
+    /*
+    PUBSUB 끝
+    */
 
     let mut buffer = [0_u8; 4096];
     let mut pending: Vec<u8> = Vec::new();
@@ -46,6 +64,11 @@ pub async fn handle(
          */
         if *shutdown.borrow() {
             info!(reason = "shutdown", "connection closing");
+            return Ok(());
+        }
+
+        if *disconnect_receiver.borrow() {
+            info!(reason = "pubsub_disconnect", "connection closing");
             return Ok(());
         }
 
@@ -68,19 +91,64 @@ pub async fn handle(
         2. 읽거나 타임아웃이거나
          */
         let bytes_read = tokio::select! {
-            biased;
 
             _ = shutdown.changed() =>{
                 info!(reason = "shutdown", "connection closing");
                 return Ok(());
             }
-            result = timeout(
-                READ_TIMEOUT,
-                socket.read(&mut buffer[..read_limit]),
-            ) =>{
-                result.map_err(|_| {
-                    io::Error::new(io::ErrorKind::TimedOut, "read timeout")
-                })??
+            // PUBSUB 에 의한 종료
+            _ = disconnect_receiver.changed() => {
+                info!(reason = "pubsub_disconnect", "connection closing");
+                return Ok(());
+            }
+            // PUBSUB 메세지 수신 이벤트
+            event = receiver.recv()=>{
+                // 값이 None 일때 Ok
+                let Some(event) = event else{
+                    return Ok(());
+                };
+
+                // 내부 메시지를 RESP 응답으로 변환
+                let frame = resp::Frame::Array(vec![
+                    resp::Frame::BulkString(b"message".to_vec()),
+                    resp::Frame::BulkString(event.channel),
+                    resp::Frame::BulkString(event.message),
+                ]);
+
+                // Frame을 전송할 바이트로 인코딩
+                let mut output = resp::encode(frame).map_err(|error| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("failed to encode pubsub message: {error:?}"),
+                    )
+                })?;
+
+                // 기존 쓰기 함수 사용: 쓰기 타임아웃도 적용됨
+                write_pending(&mut output, &mut socket).await?;
+
+                // 소켓 입력 처리로 내려가지 않고 다시 이벤트 대기
+                continue;
+            }
+            result = async {
+                if subscriptions.is_empty() {
+                    // 일반 연결: 기존 읽기 타임아웃 적용
+                    timeout(
+                        READ_TIMEOUT,
+                        socket.read(&mut buffer[..read_limit]),
+                    )
+                    .await
+                    .map_err(|_| {
+                        io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "read timeout",
+                        )
+                    })?
+                } else {
+                    // 구독 연결: 명령을 보내지 않고 기다릴 수 있음
+                    socket.read(&mut buffer[..read_limit]).await
+                }
+            } => {
+                result?
             }
         };
 
@@ -105,7 +173,10 @@ pub async fn handle(
         let mut exit_quit: bool = false;
         let mut pending_error: Option<io::Error> = None;
 
-        loop {
+        'commands: loop {
+            if *disconnect_receiver.borrow() {
+                return Ok(());
+            }
             match resp::parse(&pending[offset..]) {
                 Ok(Some((frame, consumed))) => {
                     // 처리한 바이트 수를 누적
@@ -114,48 +185,77 @@ pub async fn handle(
                     /*
                     frame을 command로 변경후 execute 함수로 넘기고 응답 frame 받아옴
                      */
-                    let response = match Command::from_frame(frame) {
+                    let responses: Vec<resp::Frame> = match Command::from_frame(frame) {
+                        // 구독 모드에서 허용되지않은 커맨드 들어옴 -> 에러
+                        Ok(command)
+                            if !subscriptions.is_empty() && !allowed_while_subscribed(&command) =>
+                        {
+                            vec![resp::Frame::Error(
+                                "ERR command is not allowed in subscribed mode".to_owned(),
+                            )]
+                        }
+                        // 구독 모드에서 Ping은 배열 응답이라 따로 빼줌
+                        Ok(Command::Ping) if !subscriptions.is_empty() => {
+                            vec![resp::Frame::Array(vec![
+                                resp::Frame::BulkString(b"pong".to_vec()),
+                                resp::Frame::BulkString(Vec::new()),
+                            ])]
+                        }
                         Ok(command) => match command {
                             Command::Quit => {
                                 // 쓰기 펜딩에 Quit OK 작성
                                 pending_resp.extend_from_slice(b"+OK\r\n");
                                 exit_quit = true;
-                                break;
+                                break 'commands;
                             }
                             // Client 명령어
                             Command::Client(client_command) => {
-                                executor::execute_client(client_command, client_id, &clients)
+                                vec![executor::execute_client(
+                                    client_command,
+                                    client_id,
+                                    &clients,
+                                )]
                             }
-                            other => executor::execute(other, &db),
+                            // PubSub
+                            Command::PubSub(pubsub_command) => executor::execute_pubsub(
+                                pubsub_command,
+                                client_id,
+                                pubsub,
+                                &subscriber,
+                                &mut subscriptions,
+                                &mut receiver,
+                            ),
+                            other => vec![executor::execute(other, &db)],
                         },
                         Err(error) => {
                             tracing::debug!(?error, "invalid command");
-                            resp::Frame::Error(error.message().to_owned())
+                            vec![resp::Frame::Error(error.message().to_owned())]
                         }
                     };
 
                     // 받은 frame을 encoder로 byte로 변환
-                    let response_bytes = match resp::encode(response) {
-                        Ok(bytes) => bytes,
-                        Err(err) => {
-                            pending_error = Some(io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                format!("failed to encode RESP response: {err:?}"),
-                            ));
-                            break;
+                    for response in responses {
+                        let response_bytes = match resp::encode(response) {
+                            Ok(bytes) => bytes,
+                            Err(err) => {
+                                pending_error = Some(io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    format!("failed to encode RESP response: {err:?}"),
+                                ));
+                                break 'commands;
+                            }
+                        };
+                        // 응답이 너무 길어지지 않게 도중에 펜딩 비우기
+                        if pending_resp.len() + response_bytes.len() > MAX_PENDING_WRITE_BYTES {
+                            write_pending(&mut pending_resp, &mut socket).await?;
                         }
-                    };
+                        // 응답 펜딩에 응답 작성
+                        pending_resp.extend_from_slice(&response_bytes);
 
-                    // 응답이 너무 길어지지 않게 도중에 펜딩 비우기
-                    if pending_resp.len() + response_bytes.len() > MAX_PENDING_WRITE_BYTES {
-                        write_pending(&mut pending_resp, &mut socket).await?;
-                    }
-                    // 응답 펜딩에 응답 작성
-                    pending_resp.extend_from_slice(&response_bytes);
-
-                    // 응답 하나가 맥스 넘어감. -> 펜딩 비우기
-                    if pending_resp.len() >= MAX_PENDING_WRITE_BYTES {
-                        write_pending(&mut pending_resp, &mut socket).await?;
+                        // 응답 하나가 맥스 넘어감. -> 펜딩 비우기
+                        if pending_resp.len() >= MAX_PENDING_WRITE_BYTES {
+                            write_pending(&mut pending_resp, &mut socket).await?;
+                        }
                     }
                 }
                 Ok(None) => {
@@ -200,16 +300,31 @@ async fn write_pending(pending: &mut Vec<u8>, socket: &mut TcpStream) -> io::Res
     pending.clear();
     Ok(())
 }
+
+fn allowed_while_subscribed(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Ping
+            | Command::Quit
+            | Command::PubSub(PubSubCommand::Subscribe { .. })
+            | Command::PubSub(PubSubCommand::Unsubscribe { .. })
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{handle, write_pending, MAX_PENDING_WRITE_BYTES, WRITE_TIMEOUT};
     use crate::client::{ClientGuard, Clients};
+    use crate::command::PubSubCommand;
     use crate::db::Db;
+    use crate::executor;
+    use crate::pubsub::{PubSub, PubSubMessage, Subscriber};
     use crate::resp::{self, Frame};
+    use std::collections::HashSet;
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
-    use tokio::sync::watch;
+    use tokio::sync::{mpsc, watch};
     use tokio::time::timeout;
 
     #[tokio::test]
@@ -283,9 +398,17 @@ mod tests {
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
         let server = tokio::spawn(async move {
             let (socket, peer) = listener.accept().await.unwrap();
-            handle(peer, socket, db, Clients::default(), shutdown_rx, 1)
-                .await
-                .unwrap();
+            handle(
+                peer,
+                socket,
+                db,
+                Clients::default(),
+                shutdown_rx,
+                1,
+                &PubSub::default(),
+            )
+            .await
+            .unwrap();
         });
 
         let mut client = TcpStream::connect(address).await.unwrap();
@@ -328,9 +451,17 @@ mod tests {
 
         let server = tokio::spawn(async move {
             let (socket, peer) = listener.accept().await.unwrap();
-            handle(peer, socket, db, Clients::default(), shutdown_rx, 1)
-                .await
-                .unwrap();
+            handle(
+                peer,
+                socket,
+                db,
+                Clients::default(),
+                shutdown_rx,
+                1,
+                &PubSub::default(),
+            )
+            .await
+            .unwrap();
         });
 
         let mut client = TcpStream::connect(address).await.unwrap();
@@ -417,12 +548,267 @@ mod tests {
         shutdown: watch::Receiver<bool>,
         client_id: u64,
     ) -> (TcpStream, tokio::task::JoinHandle<std::io::Result<()>>) {
+        start_connection_with_pubsub(db, clients, PubSub::default(), shutdown, client_id).await
+    }
+
+    async fn start_connection_with_pubsub(
+        db: Db,
+        clients: Clients,
+        pubsub: PubSub,
+        shutdown: watch::Receiver<bool>,
+        client_id: u64,
+    ) -> (TcpStream, tokio::task::JoinHandle<std::io::Result<()>>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let client = TcpStream::connect(address).await.unwrap();
         let (socket, peer) = listener.accept().await.unwrap();
-        let server = tokio::spawn(handle(peer, socket, db, clients, shutdown, client_id));
+        let server = tokio::spawn(async move {
+            handle(peer, socket, db, clients, shutdown, client_id, &pubsub).await
+        });
         (client, server)
+    }
+
+    fn request(parts: &[&[u8]]) -> Vec<u8> {
+        resp::encode(Frame::Array(
+            parts
+                .iter()
+                .map(|part| Frame::BulkString(part.to_vec()))
+                .collect(),
+        ))
+        .unwrap()
+    }
+
+    fn pubsub_acknowledgement(kind: &[u8], channel: &[u8], count: i64) -> Vec<u8> {
+        resp::encode(Frame::Array(vec![
+            Frame::BulkString(kind.to_vec()),
+            Frame::BulkString(channel.to_vec()),
+            Frame::Integer(count),
+        ]))
+        .unwrap()
+    }
+
+    async fn subscribe_news(client: &mut TcpStream) {
+        client
+            .write_all(&request(&[b"SUBSCRIBE", b"news"]))
+            .await
+            .unwrap();
+        let expected = pubsub_acknowledgement(b"subscribe", b"news", 1);
+        let mut actual = vec![0; expected.len()];
+        timeout(Duration::from_secs(2), client.read_exact(&mut actual))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn pubsub_mode_restricts_commands_and_returns_to_normal_after_unsubscribe() {
+        let db = Db::default();
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (mut client, server) = start_connection(db.clone(), shutdown_rx).await;
+        let commands: &[&[&[u8]]] = &[
+            &[b"SUBSCRIBE", b"news"],
+            &[b"SUBSCRIBE", b"news"],
+            &[b"PING"],
+            &[b"GET", b"name"],
+            &[b"SET", b"name", b"changed"],
+            &[b"CLIENT", b"ID"],
+            &[b"PUBLISH", b"news", b"forbidden"],
+            &[b"UNSUBSCRIBE", b"missing"],
+            &[b"UNSUBSCRIBE"],
+            &[b"SET", b"name", b"allowed"],
+            &[b"PING"],
+            &[b"QUIT"],
+        ];
+        let requests: Vec<u8> = commands.iter().flat_map(|parts| request(parts)).collect();
+        client.write_all(&requests).await.unwrap();
+        let mut expected = pubsub_acknowledgement(b"subscribe", b"news", 1);
+        expected.extend(pubsub_acknowledgement(b"subscribe", b"news", 1));
+        expected.extend(
+            resp::encode(Frame::Array(vec![
+                Frame::BulkString(b"pong".to_vec()),
+                Frame::BulkString(vec![]),
+            ]))
+            .unwrap(),
+        );
+        for _ in 0..4 {
+            expected.extend_from_slice(b"-ERR command is not allowed in subscribed mode\r\n");
+        }
+        expected.extend(pubsub_acknowledgement(b"unsubscribe", b"missing", 1));
+        expected.extend(pubsub_acknowledgement(b"unsubscribe", b"news", 0));
+        expected.extend_from_slice(b"+OK\r\n+PONG\r\n+OK\r\n");
+        expect_closed(&mut client, server, &expected).await;
+        assert_eq!(db.get("name"), Some(b"allowed".to_vec()));
+    }
+
+    #[tokio::test]
+    async fn pubsub_guard_cleans_up_on_eof_quit_protocol_error_abort_and_shutdown() {
+        for exit in ["eof", "quit", "protocol_error", "abort", "shutdown"] {
+            let pubsub = PubSub::default();
+            let (shutdown_tx, shutdown_rx) = watch::channel(false);
+            let (mut client, server) = start_connection_with_pubsub(
+                Db::default(),
+                Clients::default(),
+                pubsub.clone(),
+                shutdown_rx,
+                1,
+            )
+            .await;
+            subscribe_news(&mut client).await;
+            assert!(pubsub
+                .lock()
+                .unwrap()
+                .get(b"news".as_slice())
+                .unwrap()
+                .contains_key(&1));
+            match exit {
+                "eof" => {
+                    drop(client);
+                    timeout(Duration::from_secs(2), server)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                }
+                "quit" => {
+                    client.write_all(&request(&[b"QUIT"])).await.unwrap();
+                    expect_closed(&mut client, server, b"+OK\r\n").await;
+                }
+                "protocol_error" => {
+                    client.write_all(b"?").await.unwrap();
+                    let error = timeout(Duration::from_secs(2), server)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .unwrap_err();
+                    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+                }
+                "abort" => {
+                    server.abort();
+                    assert!(timeout(Duration::from_secs(2), server)
+                        .await
+                        .unwrap()
+                        .unwrap_err()
+                        .is_cancelled());
+                }
+                "shutdown" => {
+                    shutdown_tx.send(true).unwrap();
+                    timeout(Duration::from_secs(2), server)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                }
+                _ => unreachable!(),
+            }
+            assert!(pubsub.lock().unwrap().is_empty(), "exit: {exit}");
+        }
+    }
+
+    #[tokio::test]
+    async fn subscribed_connection_survives_read_idle_timeout() {
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (mut client, server) = start_connection(Db::default(), shutdown_rx).await;
+        subscribe_news(&mut client).await;
+        tokio::time::pause();
+        tokio::time::advance(super::READ_TIMEOUT + Duration::from_secs(1)).await;
+        assert!(
+            !server.is_finished(),
+            "idle subscriber must remain connected"
+        );
+        tokio::time::resume();
+        client.write_all(&request(&[b"PING"])).await.unwrap();
+        let expected = resp::encode(Frame::Array(vec![
+            Frame::BulkString(b"pong".to_vec()),
+            Frame::BulkString(vec![]),
+        ]))
+        .unwrap();
+        let mut actual = vec![0; expected.len()];
+        timeout(Duration::from_secs(2), client.read_exact(&mut actual))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(actual, expected);
+        client.write_all(&request(&[b"QUIT"])).await.unwrap();
+        expect_closed(&mut client, server, b"+OK\r\n").await;
+    }
+
+    #[tokio::test]
+    async fn full_pubsub_queue_closes_only_the_slow_connection() {
+        let pubsub = PubSub::default();
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (mut slow, slow_server) = start_connection_with_pubsub(
+            Db::default(),
+            Clients::default(),
+            pubsub.clone(),
+            shutdown_rx.clone(),
+            1,
+        )
+        .await;
+        let (mut fast, fast_server) = start_connection_with_pubsub(
+            Db::default(),
+            Clients::default(),
+            pubsub.clone(),
+            shutdown_rx,
+            2,
+        )
+        .await;
+        subscribe_news(&mut slow).await;
+        subscribe_news(&mut fast).await;
+        let slow_subscriber = pubsub
+            .lock()
+            .unwrap()
+            .get(b"news".as_slice())
+            .unwrap()
+            .get(&1)
+            .unwrap()
+            .clone();
+
+        // 단일 스레드에서 await 없이 큐를 채워 느린 구독자를 재현한다.
+        for _ in 0..super::MAX_PENDING_PUBSUB_MESSAGES {
+            slow_subscriber
+                .sender
+                .try_send(PubSubMessage {
+                    channel: b"news".to_vec(),
+                    message: b"queued".to_vec(),
+                })
+                .unwrap();
+        }
+        let (sender, mut receiver) = mpsc::channel(1);
+        let (disconnect, _) = watch::channel(false);
+        let publisher = Subscriber { sender, disconnect };
+        let response = executor::execute_pubsub(
+            PubSubCommand::Publish {
+                channel: b"news".to_vec(),
+                message: b"live".to_vec(),
+            },
+            3,
+            &pubsub,
+            &publisher,
+            &mut HashSet::new(),
+            &mut receiver,
+        );
+        assert_eq!(response, vec![Frame::Integer(1)]);
+        assert!(*slow_subscriber.disconnect.borrow());
+        expect_closed(&mut slow, slow_server, b"").await;
+
+        let expected = resp::encode(Frame::Array(vec![
+            Frame::BulkString(b"message".to_vec()),
+            Frame::BulkString(b"news".to_vec()),
+            Frame::BulkString(b"live".to_vec()),
+        ]))
+        .unwrap();
+        let mut actual = vec![0; expected.len()];
+        timeout(Duration::from_secs(2), fast.read_exact(&mut actual))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(actual, expected);
+        assert!(!fast_server.is_finished());
+        assert!(!*publisher.disconnect.borrow());
+        fast.write_all(&request(&[b"QUIT"])).await.unwrap();
+        expect_closed(&mut fast, fast_server, b"+OK\r\n").await;
+        assert!(pubsub.lock().unwrap().is_empty());
     }
 
     async fn expect_closed(
@@ -523,6 +909,7 @@ mod tests {
             .unwrap();
         let (socket, peer) = listener.accept().await.unwrap();
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let pubsub = PubSub::default();
         let handler = handle(
             peer,
             socket,
@@ -530,6 +917,7 @@ mod tests {
             Clients::default(),
             shutdown_rx,
             1,
+            &pubsub,
         );
         tokio::pin!(handler);
 

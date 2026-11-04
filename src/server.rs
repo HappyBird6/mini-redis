@@ -1,4 +1,5 @@
-use std::collections::BTreeMap;
+use crate::pubsub::PubSub;
+use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
 use std::time::Duration;
 use std::{io, sync::Arc, sync::Mutex};
@@ -42,6 +43,9 @@ pub async fn run(server_config: ServerConfig) -> io::Result<()> {
     // 연결 client 리스트 생성
     let clients: Clients = Arc::new(Mutex::new(BTreeMap::new()));
 
+    // PubSub 생성
+    let pubsub: PubSub = Arc::new(Mutex::new(HashMap::new()));
+
     let purge_db = db.clone();
     let mut purge_shutdown_receiver = shutdown_receiver.clone();
     tokio::spawn(async move {
@@ -81,6 +85,7 @@ pub async fn run(server_config: ServerConfig) -> io::Result<()> {
                     &shutdown_receiver,
                     server_config.max_connections,
                     &mut client_id,
+                    &pubsub
                 ).await {
                     Ok(outcome) => outcome,
                     Err(error) => break Err(error),
@@ -173,6 +178,7 @@ async fn accept_connection(
     shutdown: &watch::Receiver<bool>,
     max_connections: usize,
     client_id: &mut u64,
+    pubsub: &PubSub,
 ) -> io::Result<AcceptOutcome> {
     // 기존 소켓, peer 받아오던 방식에서 connection 을 받아오는걸로 변경
     let (mut socket, peer) = connection;
@@ -187,6 +193,7 @@ async fn accept_connection(
 
     let db = db.clone();
     let clients = Arc::clone(clients);
+    let pubsub = Arc::clone(pubsub);
 
     let shutdown = shutdown.clone();
 
@@ -198,8 +205,16 @@ async fn accept_connection(
         // 퍼밋하나 할당. 블록끝나면 자동 드랍으로 퍼밋 보충
         let _permit = permit;
 
-        if let Err(error) =
-            connection::handle(peer, socket, db, clients, shutdown, assigned_client_id).await
+        if let Err(error) = connection::handle(
+            peer,
+            socket,
+            db,
+            clients,
+            shutdown,
+            assigned_client_id,
+            &pubsub,
+        )
+        .await
         {
             warn!(%peer, %error, "connection failed");
         }
@@ -331,6 +346,7 @@ mod tests {
         let max_connections = 1;
         let mut client_id = 0;
         let clients = Clients::default();
+        let pubsub = PubSub::default();
         let semaphore = Arc::new(Semaphore::new(max_connections));
         let mut connections = JoinSet::new();
         let db = Db::default();
@@ -347,6 +363,7 @@ mod tests {
                 &shutdown_rx,
                 max_connections,
                 &mut client_id,
+                &pubsub,
             )
             .await
             .unwrap(),
@@ -373,6 +390,7 @@ mod tests {
                 &shutdown_rx,
                 max_connections,
                 &mut client_id,
+                &pubsub,
             )
             .await
             .unwrap(),
@@ -416,6 +434,7 @@ mod tests {
             &shutdown_rx,
             max_connections,
             &mut client_id,
+            &pubsub,
         )
         .await
         .unwrap();
