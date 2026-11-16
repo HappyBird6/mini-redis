@@ -85,7 +85,7 @@ pub async fn handle(
         소켓에서 데이터 읽기, 타임아웃 처리. 중첩된 Result를 반환하기때문에 마지막에 물음표 두개로 처리
         타임아웃되면 에러처리됨
         select로 이벤트 선택 대기
-        biased; 로 위쪽 분기에 우선순위 주는 설정
+        메시지 수신 분기에서도 종료 플래그를 재확인
 
         1. shutdown의 값이 바껴서 연결 처리 종료거나
         2. 읽거나 타임아웃이거나
@@ -103,6 +103,11 @@ pub async fn handle(
             }
             // PUBSUB 메세지 수신 이벤트
             event = receiver.recv()=>{
+                // 종료 신호와 메시지가 동시에 준비돼도 추가 전송 없이 종료한다.
+                if *disconnect_receiver.borrow() {
+                    info!(reason = "pubsub_disconnect", "connection closing");
+                    return Ok(());
+                }
                 // 값이 None 일때 Ok
                 let Some(event) = event else{
                     return Ok(());
