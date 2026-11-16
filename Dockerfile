@@ -12,6 +12,7 @@ WORKDIR /app
 COPY Cargo.toml rust-toolchain.toml ./
 COPY src ./src
 COPY tests ./tests
+COPY web ./web
 
 RUN cargo build
 
