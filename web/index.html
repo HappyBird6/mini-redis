@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Redis Test Lab</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+      color: #182b25;
+      background: #f5f7f6;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    button, select, input, textarea { font: inherit; }
+    .site-header {
+      min-height: 96px;
+      padding: 24px 36px;
+      background: #fff;
+      border-bottom: 1px solid #dde5e0;
+    }
+    .site-header h1 { margin: 0; font-size: 24px; letter-spacing: -0.8px; }
+    .site-header p { margin: 8px 0 0; color: #63736c; font-size: 14px; }
+    .workspace { display: grid; grid-template-columns: 240px minmax(0, 1fr); }
+    .sidebar {
+      min-height: calc(100vh - 108px);
+      padding: 32px 20px;
+      background: #fff;
+      border-right: 1px solid #dde5e0;
+    }
+    .nav-heading { margin: 0 12px 16px; color: #63736c; font-size: 13px; }
+    .test-navigation { display: grid; gap: 8px; }
+    .test-link {
+      padding: 13px 16px;
+      border-radius: 8px;
+      color: #4e6258;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .test-link:hover { background: #f1f5f3; }
+    .test-link[aria-current="page"] { color: #126443; background: #e7f3ec; }
+    main { min-width: 0; padding: 44px; }
+    .test-panel { max-width: 860px; margin: 0 auto; }
+    .eyebrow { margin: 0 0 10px; color: #26734f; font-size: 12px; font-weight: 700; letter-spacing: 1.5px; }
+    h2 { margin: 0; font-size: 30px; letter-spacing: -1px; }
+    .description { margin: 12px 0 28px; color: #63736c; line-height: 1.7; }
+    .card { padding: 26px; border: 1px solid #dde5e0; border-radius: 12px; background: #fff; }
+    .card + .card { margin-top: 20px; }
+    h3 { margin: 0 0 20px; font-size: 16px; }
+    .request-fields { display: flex; align-items: flex-end; gap: 12px; }
+    .form-fields { display: grid; gap: 20px; }
+    .submit-row { display: flex; justify-content: flex-end; }
+    textarea { resize: vertical; }
+    .field { display: grid; flex: 1; gap: 10px; }
+    label { font-size: 14px; font-weight: 600; }
+    select, input, textarea { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid #becdc4; border-radius: 7px; background: #fff; color: inherit; }
+    button { min-height: 46px; padding: 10px 22px; border: 0; border-radius: 7px; background: #176b49; color: #fff; font-weight: 600; cursor: pointer; }
+    button:hover { background: #105438; }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    :focus-visible { outline: 3px solid #56a9dc; outline-offset: 3px; }
+    pre { min-height: 140px; margin: 0; padding: 20px; border-radius: 8px; background: #f5f7f6; color: #43594d; font-size: 14px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
+    pre[data-state="error"] { background: #fff2f0; color: #a03025; }
+    .result-note { margin: 14px 0 0; color: #63736c; font-size: 12px; line-height: 1.6; }
+    @media (max-width: 700px) {
+      .site-header { padding: 24px; }
+      .workspace { grid-template-columns: 1fr; }
+      .sidebar { min-height: auto; padding: 20px 24px; border-right: 0; border-bottom: 1px solid #dde5e0; }
+      .nav-heading { margin-left: 0; }
+      .test-navigation { display: flex; flex-wrap: wrap; }
+      main { padding: 28px 20px; }
+      .card { padding: 20px; }
+      .request-fields { flex-direction: column; align-items: stretch; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <h1>Redis Test Lab</h1>
+    <p>mini-redis와 공식 Redis의 동작을 확인하는 테스트 공간</p>
+  </header>
+
+  <div class="workspace">
+    <aside class="sidebar">
+      <h2 class="nav-heading">테스트 목록</h2>
+      <nav id="test-navigation" class="test-navigation" aria-label="테스트 선택"></nav>
+    </aside>
+
+    <main>
+      <!-- 테스트를 추가할 때 고유 id와 data-test-name을 가진 패널을 추가하면 메뉴가 자동 생성됩니다. -->
+      <section id="ping" class="test-panel" data-test-panel data-test-name="PING" aria-labelledby="ping-title">
+        <p class="eyebrow">CONNECTION</p>
+        <h2 id="ping-title">PING 테스트</h2>
+        <p class="description">대상 서버에 PING을 보내 연결 상태와 응답 시간을 확인합니다.</p>
+
+        <form id="ping-form" class="card" data-command="ping">
+          <h3>요청 설정</h3>
+          <div class="request-fields">
+            <div class="field">
+              <label for="target">대상 서버</label>
+              <select id="target" name="target">
+                <option value="mini">mini-redis</option>
+                <option value="redis">공식 Redis</option>
+              </select>
+            </div>
+            <button id="ping-button" type="submit">PING 보내기</button>
+          </div>
+        </form>
+
+        <div class="card">
+          <h3>응답 결과</h3>
+          <pre id="result" data-result role="status" aria-live="polite" aria-atomic="true">서버를 선택하고 PING을 보내세요.</pre>
+          <p class="result-note">연결 및 초기화 시간과 PING 왕복 시간을 나누어 표시합니다. 단일 요청 결과입니다.</p>
+        </div>
+      </section>
+      <section id="get" class="test-panel" data-test-panel data-test-name="GET" aria-labelledby="get-title" hidden>
+        <p class="eyebrow">KEY / VALUE</p>
+        <h2 id="get-title">GET 테스트</h2>
+        <p class="description">키에 저장된 문자열을 조회합니다. 없는 키와 빈 문자열을 구분해서 표시합니다.</p>
+        <form id="get-form" class="card" data-command="get">
+          <h3>요청 설정</h3>
+          <div class="form-fields">
+            <div class="field">
+              <label for="get-target">대상 서버</label>
+              <select id="get-target" name="target">
+                <option value="mini">mini-redis</option>
+                <option value="redis">공식 Redis</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="get-key">키</label>
+              <input id="get-key" name="key" type="text" placeholder="예: demo:greeting" required>
+            </div>
+            <div class="submit-row"><button type="submit">GET 보내기</button></div>
+          </div>
+        </form>
+        <div class="card">
+          <h3>응답 결과</h3>
+          <pre data-result role="status" aria-live="polite" aria-atomic="true">키를 입력하고 GET을 보내세요.</pre>
+        </div>
+      </section>
+
+      <section id="set" class="test-panel" data-test-panel data-test-name="SET" aria-labelledby="set-title" hidden>
+        <p class="eyebrow">KEY / VALUE</p>
+        <h2 id="set-title">SET 테스트</h2>
+        <p class="description">키와 문자열 값을 저장합니다. 같은 키가 있으면 값을 덮어씁니다.</p>
+        <form id="set-form" class="card" data-command="set">
+          <h3>요청 설정</h3>
+          <div class="form-fields">
+            <div class="field">
+              <label for="set-target">대상 서버</label>
+              <select id="set-target" name="target">
+                <option value="mini">mini-redis</option>
+                <option value="redis">공식 Redis</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="set-key">키</label>
+              <input id="set-key" name="key" type="text" placeholder="예: demo:greeting" required>
+            </div>
+            <div class="field">
+              <label for="set-value">값 (빈 문자열도 저장 가능)</label>
+              <textarea id="set-value" name="value" rows="4" placeholder="저장할 값을 입력하세요."></textarea>
+            </div>
+            <div class="submit-row"><button type="submit">SET 보내기</button></div>
+          </div>
+        </form>
+        <div class="card">
+          <h3>응답 결과</h3>
+          <pre data-result role="status" aria-live="polite" aria-atomic="true">키와 값을 입력하고 SET을 보내세요.</pre>
+        </div>
+      </section>
+
+      <section id="del" class="test-panel" data-test-panel data-test-name="DEL" aria-labelledby="del-title" hidden>
+        <p class="eyebrow">KEY / VALUE</p>
+        <h2 id="del-title">DEL 테스트</h2>
+        <p class="description">키 하나를 삭제하고, 실제 삭제한 키 수를 확인합니다.</p>
+        <form id="del-form" class="card" data-command="del">
+          <h3>요청 설정</h3>
+          <div class="form-fields">
+            <div class="field">
+              <label for="del-target">대상 서버</label>
+              <select id="del-target" name="target">
+                <option value="mini">mini-redis</option>
+                <option value="redis">공식 Redis</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="del-key">키</label>
+              <input id="del-key" name="key" type="text" placeholder="예: demo:greeting" required>
+            </div>
+            <div class="submit-row"><button type="submit">DEL 보내기</button></div>
+          </div>
+        </form>
+        <div class="card">
+          <h3>응답 결과</h3>
+          <pre data-result role="status" aria-live="polite" aria-atomic="true">키를 입력하고 DEL을 보내세요.</pre>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const navigation = document.querySelector("#test-navigation");
+    const panels = [...document.querySelectorAll("[data-test-panel]")];
+
+    for (const panel of panels) {
+      const link = document.createElement("a");
+      link.href = `#${panel.id}`;
+      link.className = "test-link";
+      link.textContent = panel.dataset.testName;
+      navigation.append(link);
+    }
+
+    function selectTest() {
+      const selected = panels.find((panel) => `#${panel.id}` === window.location.hash) ?? panels[0];
+
+      for (const panel of panels) {
+        panel.hidden = panel !== selected;
+      }
+      for (const link of navigation.querySelectorAll("a")) {
+        if (link.getAttribute("href") === `#${selected.id}`) {
+          link.setAttribute("aria-current", "page");
+        } else {
+          link.removeAttribute("aria-current");
+        }
+      }
+      document.title = `${selected.dataset.testName} | Redis Test Lab`;
+    }
+
+    window.addEventListener("hashchange", selectTest);
+    selectTest();
+
+    for (const form of document.querySelectorAll("[data-command]")) {
+      const command = form.dataset.command;
+      const panel = form.closest("[data-test-panel]");
+      const target = form.elements.namedItem("target");
+      const button = form.querySelector('button[type="submit"]');
+      const result = panel.querySelector("[data-result]");
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (button.disabled) return;
+
+        const selectedLabel = target.selectedOptions[0].textContent;
+        const request = { target: target.value };
+        if (command !== "ping") request.key = form.elements.namedItem("key").value;
+        if (command === "set") request.value = form.elements.namedItem("value").value;
+
+        button.disabled = true;
+        result.dataset.state = "loading";
+        result.textContent = `${selectedLabel}에 ${command.toUpperCase()} 요청 중...`;
+
+        try {
+          const response = await fetch(`/api/${command}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(request),
+          });
+          if (!(response.headers.get("content-type") ?? "").includes("application/json")) {
+            throw new Error(`HTTP ${response.status}: 요청 형식 또는 서버 응답을 확인하세요.`);
+          }
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${data.error ?? "요청 실패"}`);
+          }
+
+          let reply = data.reply;
+          if (command === "get") {
+            reply = data.reply === null ? "(nil) — 키가 없습니다." : JSON.stringify(data.reply);
+          } else if (command === "del") {
+            reply = `${data.reply} (삭제한 키 수)`;
+          }
+          const lines = [`대상: ${selectedLabel}`, `명령: ${command.toUpperCase()}`];
+          if (command !== "ping") lines.push(`키: ${JSON.stringify(request.key)}`);
+          lines.push(
+            `응답: ${reply}`,
+            `연결 및 초기화: ${data.connect_ms.toFixed(3)} ms`,
+            `${command.toUpperCase()} 왕복 시간: ${(data.ping_ms ?? data.command_ms).toFixed(3)} ms`,
+          );
+          result.dataset.state = "success";
+          result.textContent = lines.join("\n");
+        } catch (error) {
+          result.dataset.state = "error";
+          result.textContent = `실패: ${error.message}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+    }
+  </script>
+</body>
+</html>
